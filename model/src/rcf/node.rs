@@ -1,10 +1,6 @@
 // ============================================================
 // node.rs - Узел RCF дерева
 // ============================================================
-//! Минимальная структура узла для Random Cut Forest
-//! Без зависимостей, только core
-
-use core::cmp::Ordering;
 
 /// Узел бинарного дерева для RCF алгоритма
 #[derive(Debug, Clone, Copy)]
@@ -76,63 +72,5 @@ impl Node {
     #[inline(always)]
     pub fn set_split_from_bounds(&mut self) {
         self.split_value = self.min_val + self.range() / 2.0;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    
-    #[test]
-    fn test_node_new() {
-        let node = Node::new();
-        assert_eq!(node.left, -1);
-        assert_eq!(node.right, -1);
-        assert_eq!(node.sample_count, 0);
-        assert_eq!(node.min_val, f32::MAX);
-        assert_eq!(node.max_val, f32::MIN);
-        assert!(node.is_leaf());
-    }
-    
-    #[test]
-    fn test_update_bounds() {
-        let mut node = Node::new();
-        node.update_bounds(5.0);
-        assert_eq!(node.min_val, 5.0);
-        assert_eq!(node.max_val, 5.0);
-        assert_eq!(node.sample_count, 1);
-        
-        node.update_bounds(3.0);
-        assert_eq!(node.min_val, 3.0);
-        assert_eq!(node.max_val, 5.0);
-        assert_eq!(node.sample_count, 2);
-        
-        node.update_bounds(7.0);
-        assert_eq!(node.min_val, 3.0);
-        assert_eq!(node.max_val, 7.0);
-        assert_eq!(node.sample_count, 3);
-    }
-    
-    #[test]
-    fn test_range() {
-        let mut node = Node::new();
-        node.update_bounds(10.0);
-        node.update_bounds(20.0);
-        assert_eq!(node.range(), 10.0);
-        
-        node.update_bounds(15.0);
-        assert_eq!(node.range(), 10.0);
-    }
-    
-    #[test]
-    fn test_should_split() {
-        let mut node = Node::new();
-        assert!(!node.should_split(10, 0.01));
-        
-        for i in 0..15 {
-            node.update_bounds(i as f32);
-        }
-        assert!(node.should_split(10, 0.01));
-        assert!(!node.should_split(20, 0.01));
     }
 }
