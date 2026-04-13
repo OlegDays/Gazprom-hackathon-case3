@@ -47,52 +47,49 @@ fn main() {
         println!("  Значение: {:6.1} -> оценка: {:.3} -> аномалия: {}", anomaly, score, is_anom);
     }
     
-    // ========== ЭТАП 4: Смешанные данные с аномалиями ==========
-    println!("\n[ЭТАП 4] Тест на смешанных данных (1000 циклов)...");
-    println!("  Аномалии составляют примерно 20% от данных");
+// ========== ЭТАП 4: Смешанные данные ==========
+println!("\n[ЭТАП 4] Тест на смешанных данных (1000 циклов)...");
+println!("  Аномалии: резкие скачки до 500-1000");
+
+let total_cycles = 1000;
+let mut scores = [0.0; 1000];
+let mut true_positives = 0;
+let mut false_positives = 0;
+let anomaly_count = 200;
+
+for cycle in 0..total_cycles {
+    let is_real_anomaly = (cycle % 5 == 0) && (cycle >= 100);
     
-    let total_cycles = 1000;
-    let mut scores = [0.0; 1000];
-    let mut true_positives = 0;
-    let mut false_positives = 0;
-    let anomaly_count = 200; // 20% от 1000
+    // Нормальное значение
+    let base_value = (cycle as f32 * 0.05).sin() * 10.0;
+    let mut value = base_value;
     
-    // Генерируем позиции аномалий (каждая 5-я точка)
-    for cycle in 0..total_cycles {
-        let is_real_anomaly = (cycle % 5 == 0) && (cycle >= 100);
-        
-        // Базовое нормальное значение
-        let base_value = (cycle as f32 * 0.05).sin() * 10.0;
-        let mut value = base_value;
-        
-        if is_real_anomaly {
-            // Аномалия: скачок
-            value = base_value * 10.0;
-        }
-        
-        let score = expert.process(value);
-        scores[cycle] = score;
-        
-        let is_detected = score > expert.get_threshold();
-        
-        if is_real_anomaly && is_detected {
-            true_positives += 1;
-        } else if !is_real_anomaly && is_detected {
-            false_positives += 1;
-        }
-        
-        // Вывод каждые 100 циклов
-        if cycle % 100 == 0 && cycle > 0 {
-            let mut sum_100 = 0.0;
-            for i in (cycle-100)..cycle {
-                sum_100 += scores[i];
-            }
-            let avg = sum_100 / 100.0;
-            println!("  Цикл {:4}: средняя оценка = {:.3}, порог = {:.3}", 
-                     cycle, avg, expert.get_threshold());
-        }
+    if is_real_anomaly {
+        // Сильная аномалия
+        value = 500.0 + (cycle as f32 % 100.0);  // 500-600
     }
     
+    let score = expert.process(value);
+    scores[cycle] = score;
+    
+    let is_detected = score > expert.get_threshold();
+    
+    if is_real_anomaly && is_detected {
+        true_positives += 1;
+    } else if !is_real_anomaly && is_detected {
+        false_positives += 1;
+    }
+    
+    if cycle % 100 == 0 && cycle > 0 {
+        let mut sum_100 = 0.0;
+        for i in (cycle-100)..cycle {
+            sum_100 += scores[i];
+        }
+        let avg = sum_100 / 100.0;
+        println!("  Цикл {:4}: средняя оценка = {:.3}, порог = {:.3}", 
+                 cycle, avg, expert.get_threshold());
+    }
+}
     // ========== ИТОГОВАЯ СТАТИСТИКА ==========
     println!("\n============================================================");
     println!("ИТОГОВАЯ СТАТИСТИКА");

@@ -1,14 +1,14 @@
 // ============================================================
-// signal_expert.rs - Эксперт для одного потока данных
+// signal_expert.rs
 // ============================================================
 
 use crate::rcf::RcfTree;
 use crate::learning::{AdaptiveBaseline, AdaptiveThreshold};
 
-const NUM_TREES: usize = 5;
-const INITIAL_THRESHOLD: f32 = 0.95;
-const TARGET_FPR: f32 = 0.01;
-const MAX_TREE_DEPTH: usize = 10;
+const NUM_TREES: usize = 10;
+const INITIAL_THRESHOLD: f32 = 0.4;
+const TARGET_FPR: f32 = 0.05;
+const MAX_TREE_DEPTH: usize = 8;
 
 pub struct SignalExpert {
     trees: [RcfTree; NUM_TREES],
@@ -21,6 +21,7 @@ impl SignalExpert {
     #[inline(always)]
     pub fn new() -> Self {
         let trees = [
+            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
         ];
         
@@ -37,12 +38,12 @@ impl SignalExpert {
         self.processed_count += 1;
         
         let normalized = self.baseline.update(value);
-        let rcf_score = self.compute_rcf_score(normalized);
+        let score = self.compute_rcf_score(normalized);
         
-        let is_anomaly = rcf_score > self.threshold.get_threshold();
-        self.threshold.update(rcf_score, is_anomaly);
+        let is_anomaly = score > self.threshold.get_threshold();
+        self.threshold.update(score, is_anomaly);
         
-        rcf_score
+        score
     }
     
     #[inline(always)]
@@ -54,10 +55,14 @@ impl SignalExpert {
         }
         
         let avg_depth = total_depth as f32 / NUM_TREES as f32;
-        let max_depth = MAX_TREE_DEPTH as f32;
-        let normalized_score = 1.0 - (avg_depth / max_depth).min(1.0);
         
-        normalized_score * normalized_score
+        // Простая линейная формула
+        let score = 1.0 - (avg_depth / MAX_TREE_DEPTH as f32);
+        
+        // Раздуваем умножением
+        let boosted = (score * 1.5).min(1.0);
+        
+        boosted.clamp(0.0, 1.0)
     }
     
     #[inline(always)]

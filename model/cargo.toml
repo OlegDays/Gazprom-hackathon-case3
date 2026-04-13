@@ -20,13 +20,5 @@ codegen-units = 1
 panic = "abort"
 
 [[bin]]
-name = "test_detector"
-path = "src/main.rs"
-
-[[bin]]
-name = "test_det_20"
-path = "src/main_20.rs"
-
-[[bin]]
 name = "demo"
 path = "src/main_demo.rs"
