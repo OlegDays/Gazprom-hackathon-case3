@@ -1,5 +1,6 @@
 # Gazprom-hackathon-case3
 "Team Ofey" team's repository with solution of case №3 Gazprom AI Automization hackathon. PLC analytic system.
+
 Выбор языков: Python, Rust.
 
   Обучение модели: выбрана архитектура RCF(Random Cut Forest). Данная модель создана для обнаружения аномалий во временных рядах. Обучается на чистых данных, без аномалий. Имеет возможность online learning, то есть учитывать контекст близжайщих точек, идущих до рассматриваемой и делать вывод на основе их. При том, старые точки забывыаются.
