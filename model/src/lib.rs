@@ -3,7 +3,7 @@
 // ============================================================
 
 // Экспортируем модули
-mod rcf;
+pub mod rcf;
 mod learning;
 mod expert;
 mod ensemble;

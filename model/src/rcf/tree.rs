@@ -4,11 +4,9 @@
 
 use super::node::Node;
 
-// Уменьшаем размер для теста
-const MAX_NODES: usize = 256;  // Было 256
-const MIN_SPLIT_SAMPLES: u16 = 10;  // Было 10
-const MIN_SPLIT_RANGE: f32 = 0.01;
-const MAX_DEPTH: usize = 10;  // Было 10
+const MAX_NODES: usize = 256;
+const MIN_SPLIT_SAMPLES: u16 = 10;
+const MAX_DEPTH: usize = 10;
 
 pub struct RcfTree {
     nodes: [Node; MAX_NODES],
@@ -35,11 +33,17 @@ impl RcfTree {
         loop {
             self.nodes[current].update_bounds(value);
             
+            // Если лист и пора разделить
+            if self.nodes[current].is_leaf() && self.nodes[current].should_split(MIN_SPLIT_SAMPLES) {
+                self.split_leaf(current);
+            }
+            
+            // Если все еще лист или достигли глубины
             if self.nodes[current].is_leaf() || depth >= MAX_DEPTH {
-                self.try_expand(current);
                 return depth;
             }
             
+            // Идем вниз
             if value <= self.nodes[current].split_value {
                 if self.nodes[current].left == -1 {
                     self.create_leaf(current, true, value);
@@ -58,18 +62,12 @@ impl RcfTree {
     }
     
     #[inline(always)]
-    fn try_expand(&mut self, node_idx: usize) {
-        if self.nodes[node_idx].should_split(MIN_SPLIT_SAMPLES, MIN_SPLIT_RANGE) {
-            self.split_leaf(node_idx);
-        }
-    }
-    
-    #[inline(always)]
     fn split_leaf(&mut self, node_idx: usize) {
         if self.node_count + 2 >= MAX_NODES {
             return;
         }
         
+        // Устанавливаем значение разделения
         self.nodes[node_idx].set_split_from_bounds();
         
         let left_idx = self.node_count;
@@ -81,6 +79,8 @@ impl RcfTree {
         
         self.nodes[left_idx] = Node::new();
         self.nodes[right_idx] = Node::new();
+        
+        // Распределяем существующие точки? Нет, RCF не требует ребалансировки
     }
     
     #[inline(always)]
@@ -100,6 +100,16 @@ impl RcfTree {
         } else {
             self.nodes[parent_idx].right = leaf_idx as i32;
         }
+    }
+    
+    #[inline(always)]
+    pub fn reset(&mut self) {
+        *self = Self::new();
+    }
+    
+    #[inline(always)]
+    pub fn node_count(&self) -> usize {
+        self.node_count
     }
 }
 

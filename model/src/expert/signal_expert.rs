@@ -5,10 +5,10 @@
 use crate::rcf::RcfTree;
 use crate::learning::{AdaptiveBaseline, AdaptiveThreshold};
 
-const NUM_TREES: usize = 10;
-const INITIAL_THRESHOLD: f32 = 0.4;
-const TARGET_FPR: f32 = 0.05;
-const MAX_TREE_DEPTH: usize = 8;
+const NUM_TREES: usize = 20;
+const INITIAL_THRESHOLD: f32 = 0.71;
+const TARGET_FPR: f32 = 0.1;
+const MAX_TREE_DEPTH: usize = 15;  // Максимальная возможная глубина
 
 pub struct SignalExpert {
     trees: [RcfTree; NUM_TREES],
@@ -21,6 +21,8 @@ impl SignalExpert {
     #[inline(always)]
     pub fn new() -> Self {
         let trees = [
+            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
+            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
         ];
@@ -56,13 +58,13 @@ impl SignalExpert {
         
         let avg_depth = total_depth as f32 / NUM_TREES as f32;
         
-        // Простая линейная формула
-        let score = 1.0 - (avg_depth / MAX_TREE_DEPTH as f32);
+        // Нормализуем: глубина 0-10 → оценка 1.0-0.0
+        let raw_score = 1.0 - (avg_depth / MAX_TREE_DEPTH as f32);
         
-        // Раздуваем умножением
-        let boosted = (score * 1.5).min(1.0);
+        // Раздуваем для лучшего контраста
+        let score = raw_score.powf(0.5);  // Корень поднимает низкие значения
         
-        boosted.clamp(0.0, 1.0)
+        score.clamp(0.0, 1.0)
     }
     
     #[inline(always)]
