@@ -22,7 +22,3 @@ panic = "abort"
 [[bin]]
 name = "demo"
 path = "src/main_demo.rs"
-
-[[bin]]
-name = "test_rcf"
-path = "src/test_rcf.rs"

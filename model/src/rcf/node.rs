@@ -1,6 +1,4 @@
-// ============================================================
-// node.rs - Узел RCF дерева
-// ============================================================
+//! Узел дерева случайного разреза (Random Cut Forest)
 
 #[derive(Debug, Clone, Copy)]
 pub struct Node {
@@ -10,11 +8,10 @@ pub struct Node {
     pub min_val: f32,
     pub max_val: f32,
     pub sample_count: u16,
-    pub split_count: u16,  // NEW: счетчик разделений
+    pub split_count: u16,
 }
 
 impl Node {
-    #[inline(always)]
     pub const fn new() -> Self {
         Self {
             left: -1,
@@ -23,16 +20,14 @@ impl Node {
             min_val: f32::MAX,
             max_val: f32::MIN,
             sample_count: 0,
-            split_count: 0,  // NEW
+            split_count: 0,
         }
     }
     
-    #[inline(always)]
     pub fn is_leaf(&self) -> bool {
         self.left == -1 && self.right == -1
     }
     
-    #[inline(always)]
     pub fn update_bounds(&mut self, value: f32) {
         if value < self.min_val {
             self.min_val = value;
@@ -43,27 +38,25 @@ impl Node {
         self.sample_count += 1;
     }
     
-    #[inline(always)]
     pub fn range(&self) -> f32 {
         self.max_val - self.min_val
     }
     
-    #[inline(always)]
-    pub fn should_split(&self, min_samples: u16) -> bool {
-        // Разделяем, если накоплено достаточно точек
-        // И еще не разделяли этот узел
-        self.sample_count >= min_samples && self.split_count == 0
-    }
+   pub fn should_split(&self, min_samples: u16) -> bool {
+    // Разделяем если есть достаточно образцов И есть разброс
+    self.sample_count >= min_samples 
+        && self.split_count == 0 
+        && self.range() > 0.01  // Требуем минимальный разброс
+}
     
-    #[inline(always)]
     pub fn set_split_from_bounds(&mut self) {
         if self.range() > 0.001 {
-            // Если есть диапазон, делим посередине
+            // Разделяем посередине
             self.split_value = self.min_val + self.range() / 2.0;
         } else {
-            // Если все значения одинаковые, добавляем небольшое смещение
-            self.split_value = self.min_val + 0.5;
+            // Для одинаковых значений - добавляем небольшое смещение
+            self.split_value = self.min_val + 0.1;
         }
-        self.split_count = 1;  // NEW: помечаем как разделенный
+        self.split_count = 1;
     }
-}   
+}
