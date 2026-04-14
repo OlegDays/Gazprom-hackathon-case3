@@ -2,41 +2,23 @@
 name = "anomaly_detector"
 version = "0.1.0"
 edition = "2021"
-authors = ["Industrial Control Systems Team"]
-description = "Real-time anomaly detection for 20 sensor streams using RCF with online learning"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/your-org/anomaly-detector"
-
-# Настройки для embedded
-[package.metadata]
-# Поддерживаемые платформы
-targets = ["x86_64-unknown-linux-gnu", "armv7-unknown-linux-gnueabihf", "riscv64gc-unknown-linux-gnu"]
 
 [lib]
 name = "anomaly_detector"
 path = "src/lib.rs"
-# Статическая библиотека для C-FFI (опционально)
-crate-type = ["rlib", "staticlib"]
+crate-type = ["rlib"]
 
-# Профили сборки
-[profile.dev]
-opt-level = 0
-debug = true
+[dependencies]
+libm = "0.2"
+lazy_static = "1.4"
+parking_lot = "0.12"
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
-debug = false
-panic = "abort"  # Для embedded
+panic = "abort"
 
-# Тесты
-[dev-dependencies]
-# Только для тестов на хосте
-rand = { version = "0.8", optional = true }
-
-[features]
-default = ["std"]
-std = []  # Включение стандартной библиотеки
-no_std = []  # Полностью без std (для embedded)
-test_utils = ["rand"]  # Утилиты для тестирования
+[[bin]]
+name = "demo"
+path = "src/main_demo.rs"
