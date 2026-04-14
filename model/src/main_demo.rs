@@ -1,170 +1,212 @@
-use anomaly_detector::SignalExpert;
+use anomaly_detector::{Ensemble20, SignalExpert};
 
 fn main() {
-    println!("============================================================");
-    println!("ДЕМОНСТРАЦИЯ ДЕТЕКТОРА АНОМАЛИЙ RCF");
-    println!("============================================================");
+    println!("=== ДЕТЕКТОР АНОМАЛИЙ - РАСШИРЕННОЕ ТЕСТИРОВАНИЕ ===\n");
     
-    let mut expert = Box::new(SignalExpert::new());
+    // Тест 1: Только нормальные данные
+    test_normal_only();
     
-    // ========== ЭТАП 1: Обучение на нормальных данных ==========
-    println!("\n[ЭТАП 1] Обучение на нормальных данных (200 циклов)...");
-    for i in 0..200 {
-        let normal = (i as f32 * 0.1).sin() * 10.0;
-        expert.process(normal);
-        
-        if i % 50 == 0 && i > 0 {
-            println!("  Прогресс: {} циклов, порог: {:.3}", i, expert.get_threshold());
-        }
-    }
-    println!("  Обучение завершено! Порог: {:.3}", expert.get_threshold());
+    // Тест 2: Смешанные данные с известными аномалиями
+    test_mixed_with_anomalies();
     
-    // ========== ЭТАП 2: Тест на нормальных данных ==========
-    println!("\n[ЭТАП 2] Тест на нормальных данных (50 циклов)...");
-    let mut normal_scores = [0.0; 50];
-    for i in 0..50 {
-        let normal = (i as f32 * 0.1).sin() * 10.0;
-        let score = expert.process(normal);
-        normal_scores[i] = score;
-        
-        if score > expert.get_threshold() {
-            println!("  ⚠️  Ложное срабатывание на цикле {}: {:.3}", i, score);
-        }
-    }
-    let mut sum = 0.0;
-    for &s in &normal_scores {
-        sum += s;
-    }
-    let avg_normal = sum / 50.0;
-    println!("  Средняя оценка на нормальных данных: {:.3}", avg_normal);
-    
-    // ========== ЭТАП 3: Тест на аномалиях (отдельные) ==========
-    println!("\n[ЭТАП 3] Тест на отдельных аномалиях:");
-    let anomalies = [100.0, 200.0, -100.0, 500.0, 1000.0];
-    for &anomaly in &anomalies {
-        let score = expert.process(anomaly);
-        let is_anom = if score > expert.get_threshold() { "ДА" } else { "НЕТ" };
-        println!("  Значение: {:6.1} -> оценка: {:.3} -> аномалия: {}", anomaly, score, is_anom);
-    }
-    
-// ========== ЭТАП 4: Смешанные данные ==========
-println!("\n[ЭТАП 4] Тест на смешанных данных (1000 циклов)...");
-println!("  Аномалии: резкие скачки до 500-1000");
-
-let total_cycles = 1000;
-let mut scores = [0.0; 1000];
-let mut true_positives = 0;
-let mut false_positives = 0;
-let anomaly_count = 200;
-
-for cycle in 0..total_cycles {
-    let is_real_anomaly = (cycle % 5 == 0) && (cycle >= 100);
-    
-    // Нормальное значение
-    let base_value = (cycle as f32 * 0.05).sin() * 10.0;
-    let mut value = base_value;
-    
-    if is_real_anomaly {
-        // Сильная аномалия
-        value = 500.0 + (cycle as f32 % 100.0);  // 500-600
-    }
-    
-    let score = expert.process(value);
-    scores[cycle] = score;
-    
-    let is_detected = score > expert.get_threshold();
-    
-    if is_real_anomaly && is_detected {
-        true_positives += 1;
-    } else if !is_real_anomaly && is_detected {
-        false_positives += 1;
-    }
-    
-    if cycle % 100 == 0 && cycle > 0 {
-        let mut sum_100 = 0.0;
-        for i in (cycle-100)..cycle {
-            sum_100 += scores[i];
-        }
-        let avg = sum_100 / 100.0;
-        println!("  Цикл {:4}: средняя оценка = {:.3}, порог = {:.3}", 
-                 cycle, avg, expert.get_threshold());
-    }
+    // Тест 3: Анализ одного эксперта в деталях
+    test_single_expert_detail();
 }
-    // ========== ИТОГОВАЯ СТАТИСТИКА ==========
-    println!("\n============================================================");
-    println!("ИТОГОВАЯ СТАТИСТИКА");
-    println!("============================================================");
+
+fn test_normal_only() {
+    println!("\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  ТЕСТ 1: ТОЛЬКО НОРМАЛЬНЫЕ ДАННЫЕ                            ║");
+    println!("╚══════════════════════════════════════════════════════════════╝\n");
     
-    let mut sum_all = 0.0;
-    let mut max_score = 0.0;
-    let mut min_score = 1.0;
-    for &s in &scores {
-        sum_all += s;
-        if s > max_score { max_score = s; }
-        if s < min_score { min_score = s; }
-    }
-    let avg_score_all = sum_all / total_cycles as f32;
+    let mut ensemble = Ensemble20::new();
     
-    println!("\nОбщая статистика:");
-    println!("  Всего циклов:           {}", total_cycles);
-    println!("  Средняя оценка:         {:.3}", avg_score_all);
-    println!("  Максимальная оценка:    {:.3}", max_score);
-    println!("  Минимальная оценка:     {:.3}", min_score);
-    println!("  Текущий порог:          {:.3}", expert.get_threshold());
-    
-    println!("\nОбнаружение аномалий:");
-    println!("  Реальных аномалий:      {}", anomaly_count);
-    println!("  Обнаружено аномалий:    {} из {} ({:.1}%)", 
-             true_positives, anomaly_count, 
-             true_positives as f32 / anomaly_count as f32 * 100.0);
-    println!("  Ложных срабатываний:    {}", false_positives);
-    
-    let normal_count = total_cycles - anomaly_count;
-    let false_positive_rate = false_positives as f32 / normal_count as f32 * 100.0;
-    println!("  Частота ложных:         {:.2}%", false_positive_rate);
-    
-    // Метрики
-    let precision = true_positives as f32 / (true_positives + false_positives) as f32;
-    let recall = true_positives as f32 / anomaly_count as f32;
-    let f1_score = 2.0 * precision * recall / (precision + recall);
-    
-    println!("\nМетрики качества:");
-    println!("  Точность (Precision):   {:.3}", precision);
-    println!("  Полнота (Recall):       {:.3}", recall);
-    println!("  F1-мера:                {:.3}", f1_score);
-    
-    println!("\nВердикт:");
-    if f1_score > 0.8 {
-        println!("  Отлично! Детектор показывает высокое качество.");
-    } else if f1_score > 0.6 {
-        println!("  Хорошо! Детектор работает удовлетворительно.");
-    } else if f1_score > 0.4 {
-        println!("  Средне. Рекомендуется донастройка параметров.");
-    } else {
-        println!("  Плохо. Требуется серьезная настройка.");
+    // Обучаем на нормальных данных с вариациями
+    println!("📊 Обучение на 200 нормальных значениях...");
+    for i in 0..200 {
+        let normal = 10.0 + (i as f32 * 0.1).sin() * 1.5;
+        let values = [normal; 20];
+        ensemble.process_frame(&values);
     }
     
-    // Динамика обучения
-    let mut sum_first = 0.0;
-    let mut sum_last = 0.0;
+    println!("\n📈 Тестирование 50 нормальных значений:\n");
+    println!("  №  │ Значение │ Оценка  │ Порог  │ Статус");
+    println!("─────┼──────────┼─────────┼────────┼─────────");
+    
+    let mut false_positives = 0;
+    let total = 50;
+    
+    for i in 0..total {
+        let normal = 10.0 + (i as f32 * 0.2).cos() * 1.2;
+        let values = [normal; 20];
+        let result = ensemble.process_frame(&values);
+        
+        if result.anomalies[0] {
+            false_positives += 1;
+        }
+        
+        let status = if result.anomalies[0] { "⚠️ FP " } else { "✅ OK " };
+        println!(" {:3} │ {:8.2} │ {:7.3} │ {:6.3} │ {}", 
+                 i + 1, normal, result.scores[0], ensemble.get_thresholds()[0], status);
+    }
+    
+    let fpr = false_positives as f32 / total as f32 * 100.0;
+    println!("\n📊 Результаты:");
+    println!("   Ложные срабатывания: {}/{} ({:.1}%)", false_positives, total, fpr);
+    println!("   Финальный порог: {:.3}", ensemble.get_thresholds()[0]);
+}
+
+fn test_mixed_with_anomalies() {
+    println!("\n\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  ТЕСТ 2: СМЕШАННЫЕ ДАННЫЕ С АНОМАЛИЯМИ                       ║");
+    println!("╚══════════════════════════════════════════════════════════════╝\n");
+    
+    let mut ensemble = Ensemble20::new();
+    
+    // Фаза обучения
+    println!("📊 Обучение на 100 нормальных значениях...");
     for i in 0..100 {
-        sum_first += scores[i];
-        sum_last += scores[total_cycles - 100 + i];
-    }
-    let avg_first = sum_first / 100.0;
-    let avg_last = sum_last / 100.0;
-    
-    println!("\nДинамика обучения:");
-    println!("  Средняя оценка (первые 100):  {:.3}", avg_first);
-    println!("  Средняя оценка (последние 100): {:.3}", avg_last);
-    
-    if avg_last < avg_first * 0.7 {
-        println!("  Модель успешно обучилась.");
-    } else {
-        println!("  Обучение продолжается.");
+        let normal = 10.0 + (i as f32 * 0.05).sin() * 1.0;
+        let values = [normal; 20];
+        ensemble.process_frame(&values);
     }
     
-    println!("\n============================================================");
-    println!("ДЕМОНСТРАЦИЯ ЗАВЕРШЕНА");
-    println!("============================================================");
+    println!("\n📈 Тестирование смешанной последовательности:\n");
+    println!("  №  │ Значение │ Тип       │ Оценка  │ Порог  │ Статус");
+    println!("─────┼──────────┼───────────┼─────────┼────────┼─────────");
+    
+    // Предопределённая последовательность с аномалиями
+    let test_sequence = [
+        (10.2, false),   // норма
+        (10.5, false),   // норма
+        (25.0, true),    // АНОМАЛИЯ - сильный скачок
+        (10.3, false),   // норма
+        (9.8, false),    // норма
+        (10.1, false),   // норма
+        (15.0, true),    // АНОМАЛИЯ - средний скачок
+        (10.4, false),   // норма
+        (10.2, false),   // норма
+        (30.0, true),    // АНОМАЛИЯ - очень сильный скачок
+        (10.0, false),   // норма
+        (10.5, false),   // норма
+        (20.0, true),    // АНОМАЛИЯ - сильный скачок
+        (10.1, false),   // норма
+        (9.9, false),    // норма
+        (10.3, false),   // норма
+        (12.0, false),   // норма (лёгкое отклонение)
+        (18.0, true),    // АНОМАЛИЯ - заметный скачок
+        (10.2, false),   // норма
+        (10.0, false),   // норма
+    ];
+    
+    let mut true_positives = 0;
+    let mut false_positives = 0;
+    let mut true_negatives = 0;
+    let mut false_negatives = 0;
+    let mut total_anomalies = 0;
+    let mut total_normals = 0;
+    
+    for (i, (value, is_real_anomaly)) in test_sequence.iter().enumerate() {
+        let values = [*value; 20];
+        let result = ensemble.process_frame(&values);
+        let detected = result.anomalies[0];
+        
+        // Подсчёт статистики
+        if *is_real_anomaly {
+            total_anomalies += 1;
+            if detected {
+                true_positives += 1;
+            } else {
+                false_negatives += 1;
+            }
+        } else {
+            total_normals += 1;
+            if detected {
+                false_positives += 1;
+            } else {
+                true_negatives += 1;
+            }
+        }
+        
+        let type_str = if *is_real_anomaly { "🔴 АНОМАЛИЯ" } else { "🟢 НОРМА   " };
+        let status = if detected {
+            if *is_real_anomaly { "✅ TP" } else { "⚠️ FP" }
+        } else {
+            if *is_real_anomaly { "❌ FN" } else { "✅ TN" }
+        };
+        
+        println!(" {:3} │ {:8.2} │ {} │ {:7.3} │ {:6.3} │ {}", 
+                 i + 1, value, type_str, result.scores[0], ensemble.get_thresholds()[0], status);
+    }
+    
+    println!("\n📊 Метрики качества:");
+    println!("   True Positives:  {}/{}", true_positives, total_anomalies);
+    println!("   False Negatives: {}/{}", false_negatives, total_anomalies);
+    println!("   True Negatives:  {}/{}", true_negatives, total_normals);
+    println!("   False Positives: {}/{}", false_positives, total_normals);
+    
+    let precision = if true_positives + false_positives > 0 {
+        true_positives as f32 / (true_positives + false_positives) as f32 * 100.0
+    } else { 0.0 };
+    
+    let recall = if total_anomalies > 0 {
+        true_positives as f32 / total_anomalies as f32 * 100.0
+    } else { 0.0 };
+    
+    let f1 = if precision + recall > 0.0 {
+        2.0 * precision * recall / (precision + recall)
+    } else { 0.0 };
+    
+    println!("\n   Precision: {:.1}%", precision);
+    println!("   Recall:    {:.1}%", recall);
+    println!("   F1-Score:  {:.1}%", f1);
+}
+
+fn test_single_expert_detail() {
+    println!("\n\n╔══════════════════════════════════════════════════════════════╗");
+    println!("║  ТЕСТ 3: ДЕТАЛЬНЫЙ АНАЛИЗ С ГЛУБИНАМИ                        ║");
+    println!("╚══════════════════════════════════════════════════════════════╝\n");
+    
+    let mut expert = SignalExpert::new();
+    
+    println!("📊 Обучение эксперта на 200 нормальных значениях (10.0 ± 1.5)...\n");
+    
+    // УВЕЛИЧИВАЕМ ОБУЧЕНИЕ ДО 200 (как в Тесте 1)
+    for i in 0..200 {
+        let normal = 10.0 + (i as f32 * 0.1).sin() * 1.5;
+        expert.process(normal);
+    }
+    
+    println!("📈 Тестирование с выводом глубины:\n");
+    println!("  Значение │ Глубина │ Оценка  │ Порог  │ Статус      │ Комментарий");
+    println!("───────────┼─────────┼─────────┼────────┼─────────────┼──────────────────");
+    
+    let test_values = [
+        (9.5, "Норма, нижняя граница"),
+        (10.0, "Норма, центр"),
+        (10.5, "Норма, верхняя граница"),
+        (12.0, "Лёгкое отклонение"),
+        (15.0, "Средняя аномалия"),
+        (20.0, "Сильная аномалия"),
+        (30.0, "Очень сильная аномалия"),
+        (10.2, "Возврат к норме"),
+    ];
+    
+    for (value, comment) in test_values {
+        let (score, avg_depth) = expert.process_with_depth(value);
+        let threshold = expert.get_threshold();
+        let detected = score > threshold;
+        
+        let status = if detected {
+            "🔴 АНОМАЛИЯ"
+        } else {
+            "🟢 НОРМА   "
+        };
+        
+        println!(" {:9.2} │ {:7.1} │ {:7.3} │ {:6.3} │ {} │ {}", 
+                 value, avg_depth, score, threshold, status, comment);
+    }
+    
+    println!("\n📊 Статистика эксперта:");
+    println!("   Обработано значений: {}", expert.processed_count());
+    println!("   Финальный порог: {:.3}", expert.get_threshold());
 }

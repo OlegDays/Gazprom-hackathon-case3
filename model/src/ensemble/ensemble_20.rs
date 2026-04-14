@@ -1,79 +1,54 @@
-// ============================================================
-// ensemble_20.rs - Ансамбль из 20 независимых экспертов
-// ============================================================
+//! Ансамбль из 20 экспертов для обработки 20 потоков данных
 
 use crate::expert::SignalExpert;
+use alloc::boxed::Box;
 
-pub const NUM_EXPERTS: usize = 20;
-
-/// Ансамбль из 20 экспертов
 pub struct Ensemble20 {
-    experts: Box<[Box<SignalExpert>; NUM_EXPERTS]>,
+    experts: Box<[SignalExpert; 20]>,
 }
 
 impl Ensemble20 {
-    #[inline(always)]
     pub fn new() -> Self {
-        let experts = Box::new([
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-            Box::new(SignalExpert::new()),
-        ]);
-        
-        Self { experts }
+        Self {
+            experts: Box::new([
+                SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
+                SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
+                SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
+                SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
+            ]),
+        }
     }
     
-    #[inline(always)]
-    pub fn process_batch(&mut self, data: [f32; NUM_EXPERTS]) -> [f32; NUM_EXPERTS] {
-        let mut results = [0.0; NUM_EXPERTS];
+    pub fn process_frame(&mut self, values: &[f32; 20]) -> FrameResult {
+        let mut scores = [0.0; 20];
+        let mut anomalies = [false; 20];
         
-        for i in 0..NUM_EXPERTS {
-            results[i] = self.experts[i].process(data[i]);
+        // ИСПРАВЛЕНО: итерация с индексами
+        for i in 0..20 {
+            scores[i] = self.experts[i].process(values[i]);
+            anomalies[i] = scores[i] > self.experts[i].get_threshold();
         }
         
-        results
+        FrameResult { scores, anomalies }
     }
     
-    #[inline(always)]
-    pub fn process_batch_binary(&mut self, data: [f32; NUM_EXPERTS]) -> [bool; NUM_EXPERTS] {
-        let mut results = [false; NUM_EXPERTS];
-        
-        for i in 0..NUM_EXPERTS {
-            let score = self.experts[i].process(data[i]);
-            results[i] = self.experts[i].is_anomaly(score);
+    pub fn get_thresholds(&self) -> [f32; 20] {
+        let mut thresholds = [0.0; 20];
+        for i in 0..20 {
+            thresholds[i] = self.experts[i].get_threshold();
         }
-        
-        results
+        thresholds
     }
     
-    #[inline(always)]
-    pub fn reset_all(&mut self) {
+    pub fn reset(&mut self) {
+        // ИСПРАВЛЕНО: итерация по массиву через iter_mut()
         for expert in self.experts.iter_mut() {
             expert.reset();
         }
     }
 }
 
-impl Default for Ensemble20 {
-    #[inline(always)]
-    fn default() -> Self {
-        Self::new()
-    }
+pub struct FrameResult {
+    pub scores: [f32; 20],
+    pub anomalies: [bool; 20],
 }
