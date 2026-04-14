@@ -9,6 +9,7 @@ path = "src/lib.rs"
 crate-type = ["rlib"]
 
 [dependencies]
+libc = "0.2"
 libm = "0.2"
 lazy_static = "1.4"
 parking_lot = "0.12"
