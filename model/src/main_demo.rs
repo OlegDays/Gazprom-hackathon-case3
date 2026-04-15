@@ -64,7 +64,7 @@ fn test_mixed_with_anomalies() {
     
     // Фаза обучения
     println!("📊 Обучение на 100 нормальных значениях...");
-    for i in 0..100 {
+    for i in 0..500 {
         let normal = 10.0 + (i as f32 * 0.05).sin() * 1.0;
         let values = [normal; 20];
         ensemble.process_frame(&values);
