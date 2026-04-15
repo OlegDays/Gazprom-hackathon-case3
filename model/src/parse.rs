@@ -1,66 +1,79 @@
 // parse.rs
-#![no_std]
+// #![no_std]
+#![allow(static_mut_refs)]
 
 use core::ffi::c_char;
 
-// Максимальный размер CSV-файла. Для увеличения или уменьшения менять первое число
-const MAX_CSV_SIZE: usize = 10 * 1024 * 1024;
+const MAX_CSV_SIZE: usize = 30 * 1024 * 1024;
+const DATA_FIELDS_COUNT: usize = 20;
 
-// Глобальный буфер для содержимого файла
 static mut CSV_BUFFER: [u8; MAX_CSV_SIZE] = [0; MAX_CSV_SIZE];
-// Фактическая длина прочитанных данных
 static mut CSV_LEN: usize = 0;
-// Текущая позиция в буфере (указывает на начало следующей строки)
 static mut CURRENT_POS: usize = 0;
-// Флаг, была ли пропущена строка заголовка
 static mut HEADER_SKIPPED: bool = false;
 
-/// Инициализация модуля: чтение CSV-файла в буфер и пропуск первой строки.
-/// `path` — путь к файлу, оканчивающийся нулём (C-строка).
-/// Возвращает `true` при успехе, `false` при ошибке (файл не найден, слишком большой и т.п.).
+/// Инициализация: читает файл, нормализует переводы строк, пропускает заголовок.
 pub fn parse_init(path: *const c_char) -> bool {
     unsafe {
-        // Открываем файл (системный вызов open)
         let fd = libc::open(path, libc::O_RDONLY);
         if fd < 0 {
             return false;
         }
 
-        // Читаем данные в буфер
         let bytes_read = libc::read(fd, CSV_BUFFER.as_mut_ptr() as *mut libc::c_void, MAX_CSV_SIZE);
-        libc::close(fd);
+        let close_ok = libc::close(fd) == 0;
 
-        if bytes_read < 0 {
+        if bytes_read < 0 || !close_ok {
             return false;
         }
 
-        let bytes_read = bytes_read as usize;
-        if bytes_read == MAX_CSV_SIZE {
-            // Файл, возможно, больше буфера – считаем ошибкой
+        let mut len = bytes_read as usize;
+        if len >= MAX_CSV_SIZE {
             return false;
         }
 
-        CSV_LEN = bytes_read;
+        // Нормализация концов строк: \r\n -> \n, одиночные \r -> удалить
+        let mut wp = 0;
+        let mut rp = 0;
+        while rp < len {
+            if rp + 1 < len && CSV_BUFFER[rp] == b'\r' && CSV_BUFFER[rp + 1] == b'\n' {
+                CSV_BUFFER[wp] = b'\n';
+                wp += 1;
+                rp += 2;
+            } else if CSV_BUFFER[rp] == b'\r' {
+                rp += 1;
+            } else {
+                if wp != rp {
+                    CSV_BUFFER[wp] = CSV_BUFFER[rp];
+                }
+                wp += 1;
+                rp += 1;
+            }
+        }
+        len = wp;
+        CSV_LEN = len;
         CURRENT_POS = 0;
 
-        // Пропускаем первую строку (заголовок)
+        // Пропуск заголовка (первой строки)
         while CURRENT_POS < CSV_LEN && CSV_BUFFER[CURRENT_POS] != b'\n' {
             CURRENT_POS += 1;
         }
         if CURRENT_POS < CSV_LEN && CSV_BUFFER[CURRENT_POS] == b'\n' {
-            CURRENT_POS += 1; // переходим к началу второй строки
+            CURRENT_POS += 1;
         }
-        HEADER_SKIPPED = true;
 
+        // Пропускаем возможные пустые строки после заголовка
+        while CURRENT_POS < CSV_LEN && CSV_BUFFER[CURRENT_POS] == b'\n' {
+            CURRENT_POS += 1;
+        }
+
+        HEADER_SKIPPED = true;
         true
     }
 }
 
-/// Парсит следующую строку CSV (23 числа с плавающей точкой, без временной метки).
-/// `out` — массив, в который будут записаны значения.
-/// Возвращает `true`, если строка была успешно обработана,
-/// `false` — если достигнут конец данных или произошла ошибка.
-pub fn export_row(out: &mut [f32; 23]) -> bool {
+/// Возвращает массив из 23 чисел очередной строки (timestamp пропускается).
+pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT]) -> bool {
     unsafe {
         if !HEADER_SKIPPED || CURRENT_POS >= CSV_LEN {
             return false;
@@ -69,53 +82,45 @@ pub fn export_row(out: &mut [f32; 23]) -> bool {
         let mut pos = CURRENT_POS;
         let mut idx = 0;
 
-        // --- Пропускаем первое поле (timestamp) ---
-        // Ищем конец первого поля (до ';' или конца строки)
+        // Пропускаем timestamp (первое поле до ';')
         while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
             pos += 1;
         }
-        // Если достигли конца строки или файла – строка неполная
         if pos >= CSV_LEN || CSV_BUFFER[pos] != b';' {
             return false;
         }
-        // Пропускаем разделитель ';'
-        pos += 1;
+        pos += 1; // перешагиваем ';'
 
-        // --- Парсим следующие 23 числа ---
-        while idx < 23 && pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
-            // Пропускаем возможные пробелы и возврат каретки
-            while pos < CSV_LEN && (CSV_BUFFER[pos] == b' ' || CSV_BUFFER[pos] == b'\r') {
+        // Парсим x чисел
+        while idx <DATA_FIELDS_COUNT && pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
+            // Пропускаем пробелы
+            while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
                 pos += 1;
             }
 
-            // Находим конец текущего поля (разделитель ';' или конец строки)
             let start = pos;
             while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
                 pos += 1;
             }
             let end = pos;
 
-            // Парсим число (с поддержкой тысяч через точки)
             if let Some(value) = parse_f32(&CSV_BUFFER[start..end]) {
                 out[idx] = value;
                 idx += 1;
             } else {
-                // Ошибка парсинга – считаем всю строку некорректной
                 return false;
             }
 
-            // Пропускаем разделитель ';', если есть
             if pos < CSV_LEN && CSV_BUFFER[pos] == b';' {
                 pos += 1;
             }
         }
 
-        // Проверяем, что в строке оказалось ровно 23 числа
-        if idx != 23 {
+        if idx != DATA_FIELDS_COUNT {
             return false;
         }
 
-        // Перемещаем CURRENT_POS на начало следующей строки (за '\n')
+        // Переход к следующей строке
         while pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
             pos += 1;
         }
@@ -128,81 +133,57 @@ pub fn export_row(out: &mut [f32; 23]) -> bool {
     }
 }
 
-/// Парсер f32 из байтового слайса.
-/// Поддерживает:
-/// - целые и дробные числа (десятичный разделитель – точка);
-/// - разделители тысяч в виде точек (например, "2.917.776" → 2917776.0);
-/// - ведущий знак '+'/'-'.
-/// Возвращает `Some(f32)` при успехе, `None` при ошибке.
+/// Парсит f32 из байтов, игнорируя точки-разделители тысяч.
+/// Поддерживает десятичную точку, знак, целую и дробную часть.
 fn parse_f32(s: &[u8]) -> Option<f32> {
     if s.is_empty() {
         return None;
     }
 
-    // Преобразуем слайс в строку для удобной обработки тысяч
-    let s_str = core::str::from_utf8(s).ok()?;
-
-    // Обработка разделителей тысяч (точек, не являющихся десятичной точкой)
-    let processed = if s_str.contains('.') {
-        let dot_positions: Vec<_> = s_str.match_indices('.').collect();
-        if dot_positions.len() > 1 {
-            // Несколько точек: удаляем все, кроме последней (последняя остаётся десятичной)
-            let last_dot = dot_positions.last().unwrap().0;
-            let mut cleaned = String::with_capacity(s_str.len());
-            for (i, ch) in s_str.char_indices() {
-                if ch == '.' && i != last_dot {
-                    continue;
-                }
-                cleaned.push(ch);
-            }
-            cleaned
-        } else {
-            // Ровно одна точка – оставляем как есть
-            s_str.to_string()
+    // Находим последнюю точку (десятичную)
+    let mut last_dot_pos = None;
+    for (i, &b) in s.iter().enumerate() {
+        if b == b'.' {
+            last_dot_pos = Some(i);
         }
-    } else {
-        s_str.to_string()
-    };
+    }
 
-    // Парсим обработанную строку как f32
     let mut i = 0;
-    let chars: Vec<char> = processed.chars().collect();
-    let len = chars.len();
+    let len = s.len();
 
-    // Знак
-    let sign = if chars[i] == '-' {
+    let sign = if s[i] == b'-' {
         i += 1;
         -1.0
     } else {
-        if chars[i] == '+' {
+        if s[i] == b'+' {
             i += 1;
         }
         1.0
     };
 
-    // Целая часть
     let mut value = 0.0f32;
-    while i < len && chars[i].is_ascii_digit() {
-        value = value * 10.0 + (chars[i] as u8 - b'0') as f32;
-        i += 1;
-    }
+    let mut after_decimal = false;
+    let mut divisor = 1.0;
 
-    // Дробная часть
-    if i < len && chars[i] == '.' {
-        i += 1;
-        let mut frac = 0.0f32;
-        let mut divisor = 1.0f32;
-        while i < len && chars[i].is_ascii_digit() {
-            frac = frac * 10.0 + (chars[i] as u8 - b'0') as f32;
-            divisor *= 10.0;
-            i += 1;
+    while i < len {
+        let byte = s[i];
+        if byte == b'.' {
+            if Some(i) == last_dot_pos {
+                after_decimal = true;
+            }
+            // иначе это разделитель тысяч – игнорируем
+        } else if byte.is_ascii_digit() {
+            let digit = (byte - b'0') as f32;
+            if after_decimal {
+                divisor *= 10.0;
+                value += digit / divisor;
+            } else {
+                value = value * 10.0 + digit;
+            }
+        } else {
+            return None;
         }
-        value += frac / divisor;
-    }
-
-    if i != len {
-        // Остались необработанные символы – ошибка
-        return None;
+        i += 1;
     }
 
     Some(sign * value)
