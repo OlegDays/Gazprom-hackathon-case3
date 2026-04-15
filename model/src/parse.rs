@@ -1,9 +1,10 @@
 // parse.rs
-// #![no_std]
+#![no_std]
 #![allow(static_mut_refs)]
 
 use core::ffi::c_char;
 
+//Уточнить
 const MAX_CSV_SIZE: usize = 30 * 1024 * 1024;
 const DATA_FIELDS_COUNT: usize = 20;
 
