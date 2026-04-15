@@ -4,16 +4,21 @@
 
 use core::ffi::c_char;
 
-//Уточнить
-const MAX_CSV_SIZE: usize = 30 * 1024 * 1024;
-const DATA_FIELDS_COUNT: usize = 20;
+pub const MAX_CSV_SIZE: usize = 30 * 1024 * 1024;  // 30 МБ
+pub const DATA_FIELDS_COUNT: usize = 20;          // количество полей данных (без timestamp)
 
 static mut CSV_BUFFER: [u8; MAX_CSV_SIZE] = [0; MAX_CSV_SIZE];
 static mut CSV_LEN: usize = 0;
 static mut CURRENT_POS: usize = 0;
-static mut HEADER_SKIPPED: bool = false;
+static mut HEADER_PARSED: bool = false;
 
-/// Инициализация: читает файл, нормализует переводы строк, пропускает заголовок.
+struct HeaderField {
+    start: usize,
+    end: usize,
+}
+static mut HEADER_FIELDS: [HeaderField; DATA_FIELDS_COUNT] = [HeaderField { start: 0, end: 0 }; DATA_FIELDS_COUNT];
+
+/// Инициализация: чтение файла и нормализация переводов строк
 pub fn parse_init(path: *const c_char) -> bool {
     unsafe {
         let fd = libc::open(path, libc::O_RDONLY);
@@ -23,7 +28,6 @@ pub fn parse_init(path: *const c_char) -> bool {
 
         let bytes_read = libc::read(fd, CSV_BUFFER.as_mut_ptr() as *mut libc::c_void, MAX_CSV_SIZE);
         let close_ok = libc::close(fd) == 0;
-
         if bytes_read < 0 || !close_ok {
             return false;
         }
@@ -33,7 +37,7 @@ pub fn parse_init(path: *const c_char) -> bool {
             return false;
         }
 
-        // Нормализация концов строк: \r\n -> \n, одиночные \r -> удалить
+        // Нормализация: \r\n -> \n, удаление одиночных \r
         let mut wp = 0;
         let mut rp = 0;
         while rp < len {
@@ -51,39 +55,25 @@ pub fn parse_init(path: *const c_char) -> bool {
                 rp += 1;
             }
         }
-        len = wp;
-        CSV_LEN = len;
+        CSV_LEN = wp;
         CURRENT_POS = 0;
-
-        // Пропуск заголовка (первой строки)
-        while CURRENT_POS < CSV_LEN && CSV_BUFFER[CURRENT_POS] != b'\n' {
-            CURRENT_POS += 1;
-        }
-        if CURRENT_POS < CSV_LEN && CSV_BUFFER[CURRENT_POS] == b'\n' {
-            CURRENT_POS += 1;
-        }
-
-        // Пропускаем возможные пустые строки после заголовка
-        while CURRENT_POS < CSV_LEN && CSV_BUFFER[CURRENT_POS] == b'\n' {
-            CURRENT_POS += 1;
-        }
-
-        HEADER_SKIPPED = true;
+        HEADER_PARSED = false;
         true
     }
 }
 
-/// Возвращает массив из 23 чисел очередной строки (timestamp пропускается).
-pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT]) -> bool {
+/// Парсинг заголовка (первой строки). Сохраняются имена полей данных (без timestamp).
+pub fn parse_header() -> bool {
     unsafe {
-        if !HEADER_SKIPPED || CURRENT_POS >= CSV_LEN {
+        if HEADER_PARSED {
+            return true;
+        }
+        if CSV_LEN == 0 {
             return false;
         }
 
-        let mut pos = CURRENT_POS;
-        let mut idx = 0;
-
-        // Пропускаем timestamp (первое поле до ';')
+        let mut pos = 0;
+        // Пропускаем первое поле (timestamp) до ';'
         while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
             pos += 1;
         }
@@ -92,8 +82,125 @@ pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT]) -> bool {
         }
         pos += 1; // перешагиваем ';'
 
-        // Парсим x чисел
-        while idx <DATA_FIELDS_COUNT && pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
+        let mut idx = 0;
+        while idx < DATA_FIELDS_COUNT && pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
+            // Пропускаем начальные пробелы
+            while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
+                pos += 1;
+            }
+            let start = pos;
+            while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
+                pos += 1;
+            }
+            let end = pos;
+            if start == end {
+                return false; // пустое имя поля
+            }
+            HEADER_FIELDS[idx] = HeaderField { start, end };
+            idx += 1;
+
+            if pos < CSV_LEN && CSV_BUFFER[pos] == b';' {
+                pos += 1;
+            }
+        }
+
+        if idx != DATA_FIELDS_COUNT {
+            return false;
+        }
+
+        // Переход к началу данных: ищем конец строки заголовка
+        while pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
+            pos += 1;
+        }
+        if pos < CSV_LEN && CSV_BUFFER[pos] == b'\n' {
+            pos += 1;
+        }
+        // Пропускаем возможные пустые строки после заголовка
+        while pos < CSV_LEN && CSV_BUFFER[pos] == b'\n' {
+            pos += 1;
+        }
+        CURRENT_POS = pos;
+        HEADER_PARSED = true;
+        true
+    }
+}
+
+/// Возвращает имя i-го поля данных (0..DATA_FIELDS_COUNT-1) как &[u8]
+pub fn get_header_field(i: usize) -> Option<&'static [u8]> {
+    unsafe {
+        if !HEADER_PARSED || i >= DATA_FIELDS_COUNT {
+            return None;
+        }
+        let field = &HEADER_FIELDS[i];
+        Some(&CSV_BUFFER[field.start..field.end])
+    }
+}
+
+/// Подсчёт количества строк данных (если нужно). Должна вызываться после parse_header().
+pub fn count_lines() -> usize {
+    unsafe {
+        if !HEADER_PARSED {
+            return 0;
+        }
+        let mut pos = CURRENT_POS;
+        let mut count = 0;
+        let mut in_line = false;
+
+        while pos < CSV_LEN {
+            let b = CSV_BUFFER[pos];
+            if b == b'\n' {
+                if in_line {
+                    count += 1;
+                    in_line = false;
+                }
+            } else {
+                in_line = true;
+            }
+            pos += 1;
+        }
+        // Если последняя строка не заканчивается \n, но содержит данные
+        if in_line {
+            count += 1;
+        }
+        count
+    }
+}
+
+/// Извлекает timestamp и DATA_FIELDS_COUNT чисел из текущей строки.
+/// Результат помещается в out: out[0] = timestamp, out[1..] = значения полей.
+pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT + 1]) -> bool {
+    unsafe {
+        if !HEADER_PARSED || CURRENT_POS >= CSV_LEN {
+            return false;
+        }
+
+        let mut pos = CURRENT_POS;
+        let mut idx = 0;
+
+        // 1. Парсим timestamp (первое поле)
+        while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
+            pos += 1;
+        }
+        let start_ts = pos;
+        while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
+            pos += 1;
+        }
+        let end_ts = pos;
+        if let Some(ts) = parse_f32(&CSV_BUFFER[start_ts..end_ts]) {
+            out[0] = ts;
+        } else {
+            return false;
+        }
+
+        // Пропускаем ';' после timestamp
+        if pos < CSV_LEN && CSV_BUFFER[pos] == b';' {
+            pos += 1;
+        } else {
+            return false;
+        }
+
+        // 2. Парсим DATA_FIELDS_COUNT чисел
+        while idx < DATA_FIELDS_COUNT && pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
             // Пропускаем пробелы
             while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
                 pos += 1;
@@ -106,7 +213,7 @@ pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT]) -> bool {
             let end = pos;
 
             if let Some(value) = parse_f32(&CSV_BUFFER[start..end]) {
-                out[idx] = value;
+                out[idx + 1] = value;
                 idx += 1;
             } else {
                 return false;
@@ -134,8 +241,8 @@ pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT]) -> bool {
     }
 }
 
-/// Парсит f32 из байтов, игнорируя точки-разделители тысяч.
-/// Поддерживает десятичную точку, знак, целую и дробную часть.
+/// Парсит f32 из байтового слайса. Поддерживает десятичную точку, знак,
+/// игнорирует точки-разделители тысяч.
 fn parse_f32(s: &[u8]) -> Option<f32> {
     if s.is_empty() {
         return None;
