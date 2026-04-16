@@ -1,52 +1,84 @@
-const OUTPUT_DIR: &str = "output\0";
+// output.rs
+// Модуль записи результатов в CSV-файлы (no_std + libc)
+
+use core::ffi::c_char;
+use core::str;
+
+const OUTPUT_DIR: &[u8] = b"output\0";
 const PERMISSIONS: libc::mode_t = 0o666;
 
-fn create_output_dir() -> bool {
+/// Создаёт выходную директорию (если не существует)
+pub fn create_output_dir() -> bool {
     unsafe {
-        libc::mkdir(OUTPUT_DIR.as_ptr() as *const libc::c_char, 0o755);
-        // Ошибку игнорируем – папка может уже существовать
+        // mkdir возвращает 0 при успехе, -1 при ошибке; EEXIST допустимо
+        libc::mkdir(OUTPUT_DIR.as_ptr() as *const c_char, 0o755);
+        // Игнорируем ошибку (директория может уже быть)
         true
     }
 }
 
-fn open_output_file(field_name: &[u8], index: usize) -> i32 {
+/// Открывает файл для записи данных одного датчика.
+/// Имя файла формируется как "output/<имя_поля>.csv",
+/// недопустимые символы заменяются на '_'.
+pub fn open_output_file(field_name: &[u8], _index: usize) -> i32 {
     let mut path_buf = [0u8; 256];
-    let dir = OUTPUT_DIR.as_bytes();
-    let prefix = b"/";
+    let dir = OUTPUT_DIR;
     let suffix = b".csv";
     let mut pos = 0;
+
     // Копируем "output/"
-    for &b in dir.iter().take(dir.len() - 1) { // убираем нуль-терминатор
+    for &b in dir.iter().take(dir.len() - 1) {
+        // -1 чтобы не копировать нуль-терминатор
         path_buf[pos] = b;
         pos += 1;
     }
     path_buf[pos] = b'/';
     pos += 1;
-    // Копируем имя поля
+
+    // Копируем имя поля, заменяя опасные символы
     for &b in field_name {
-        if b == b'/' || b == b'\\' || b == b'\0' {
+        if b == b'/' || b == b'\\' || b == b'\0' || b == b';' {
             path_buf[pos] = b'_';
         } else {
             path_buf[pos] = b;
         }
         pos += 1;
-        if pos >= path_buf.len() - 10 { break; }
+        if pos >= path_buf.len() - 10 {
+            break;
+        }
     }
-    // Добавляем .csv и нуль
+
+    // Добавляем ".csv"
     for &b in suffix {
         path_buf[pos] = b;
         pos += 1;
     }
     path_buf[pos] = 0;
+
     unsafe {
-        libc::open(path_buf.as_ptr() as *const libc::c_char, libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC, PERMISSIONS)
+        libc::open(
+            path_buf.as_ptr() as *const c_char,
+            libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
+            PERMISSIONS,
+        )
     }
 }
 
-fn write_f32(fd: i32, value: f32) -> bool {
+/// Записывает строку в файл (используется для заголовков и разделителей)
+pub fn write_str(fd: i32, s: &str) -> bool {
+    unsafe {
+        let buf = s.as_bytes();
+        let written = libc::write(fd, buf.as_ptr() as *const libc::c_void, buf.len());
+        written == buf.len() as isize
+    }
+}
+
+/// Записывает число f32 с 6 знаками после запятой
+pub fn write_f32(fd: i32, value: f32) -> bool {
     let mut buf = [0u8; 32];
     let mut pos = 0;
-    // Обработка знака
+
+    // Знак
     if value < 0.0 {
         buf[pos] = b'-';
         pos += 1;
@@ -54,7 +86,8 @@ fn write_f32(fd: i32, value: f32) -> bool {
     let abs_val = value.abs();
     let int_part = abs_val.trunc() as u32;
     let frac_part = ((abs_val.fract() * 1_000_000.0).round() as u32) % 1_000_000;
-    // Записываем целую часть
+
+    // Целая часть
     let mut temp = int_part;
     let mut digits = [0u8; 10];
     let mut i = 0;
@@ -72,10 +105,12 @@ fn write_f32(fd: i32, value: f32) -> bool {
         buf[pos] = digits[j];
         pos += 1;
     }
+
     // Десятичная точка
     buf[pos] = b'.';
     pos += 1;
-    // Дробная часть с ведущими нулями
+
+    // Дробная часть (всегда 6 цифр)
     let mut frac = frac_part;
     let mut frac_digits = [0u8; 6];
     for k in (0..6).rev() {
@@ -86,25 +121,51 @@ fn write_f32(fd: i32, value: f32) -> bool {
         buf[pos] = frac_digits[k];
         pos += 1;
     }
-    // Убираем завершающие нули, если не нужно – оставляем 6 знаков для единообразия
-    // Можно обрезать, но в задании не критично.
+
     unsafe {
         let written = libc::write(fd, buf.as_ptr() as *const libc::c_void, pos);
         written == pos as isize
     }
 }
 
-fn write_header(fd: i32, field_name: &[u8]) -> bool {
-    let part1 = b"TimeStamp;";
-    let part2 = b";0 - Bad, 1 - Good\n";
-    if !write_str(fd, core::str::from_utf8(part1).unwrap()) {
+/// Записывает заголовок CSV для одного датчика:
+/// "TimeStamp;Value;Status (1=Good,0=Bad)\n"
+pub fn write_header(fd: i32, field_name: &[u8]) -> bool {
+    let part1 = "TimeStamp;";
+    let part2 = ";Status\n";   // или ";0 - Bad, 1 - Good\n"
+
+    if !write_str(fd, part1) {
         return false;
     }
-    if !write_str(fd, core::str::from_utf8(field_name).unwrap_or("unknown")) {
+    // Преобразуем field_name в &str (только ASCII)
+    if let Ok(name_str) = str::from_utf8(field_name) {
+        if !write_str(fd, name_str) {
+            return false;
+        }
+    } else {
+        // fallback
+        if !write_str(fd, "unknown") {
+            return false;
+        }
+    }
+    write_str(fd, part2)
+}
+
+/// Записывает одну строку данных: timestamp;raw_value;flag\n
+/// flag: 1 = Good (норма), 0 = Bad (аномалия)
+pub fn write_row(fd: i32, timestamp: f32, raw_value: f32, is_good: bool) -> bool {
+    if !write_f32(fd, timestamp) {
         return false;
     }
-    if !write_str(fd, core::str::from_utf8(part2).unwrap()) {
+    if !write_str(fd, ";") {
         return false;
     }
-    true
+    if !write_f32(fd, raw_value) {
+        return false;
+    }
+    if !write_str(fd, ";") {
+        return false;
+    }
+    let flag = if is_good { "1\n" } else { "0\n" };
+    write_str(fd, flag)
 }
