@@ -1,7 +1,7 @@
 [package]
 name = "anomaly_detector"
 version = "0.1.0"
-edition = "2026"
+edition = "2021"
 
 [lib]
 name = "anomaly_detector"
@@ -28,3 +28,7 @@ path = "src/main_demo.rs"
 name = "test"
 path = "src/test.rs"
 
+
+[[bin]]
+name = "GO"
+path = "src/parse_use.rs"
