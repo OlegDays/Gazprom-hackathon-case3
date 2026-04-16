@@ -9,12 +9,25 @@ use core::array::from_fn;
 use core::ffi::CStr;
 use core::fmt::Write;
 use core::str;
+use core::convert::TryInto;
 use anomaly_detector::{Ensemble20};
 
 mod parse;
 
+struct HeaderField {
+	start: usize,
+    end: usize,
+}
+
 #[no_mangle]
-pub extern "C" fn main() -> i32 {
+pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32 {
+	
+//	    if argc < 2 {
+        // Недостаточно аргументов: требуется имя CSV-файла
+//        return 1;
+//    }
+    
+//	let filename = unsafe { *argv.add(1) };
     let path = CStr::from_bytes_with_nul(b"1.csv\0").unwrap();
     let mut file_descriptors = [0i32; parse::DATA_FIELDS_COUNT];
     let mut ensemble = Ensemble20::new();
@@ -27,17 +40,18 @@ pub extern "C" fn main() -> i32 {
         return 2;
     }
     
-    if !create_output_dir() {
-		return 3;
-    }
+//    if !create_output_dir() {
+//		return 3;
+//    }
 
     // Массив для одной строки: [timestamp, field1, field2, ..., fieldN]
     let mut row = [0.0f32; parse::DATA_FIELDS_COUNT + 1];
     let mut idx: usize = 0;
 
     while parse::export_row(&mut row) {
-        let values = row[1..21];
-        let result = ensemble.process_frame(&values);
+		let mut values = [0.0; 20];
+		values.copy_from_slice(&row[1..]); // копируем элементы с индекса 1 до конца (20 элементов)
+		let result = ensemble.process_frame(&values);
         // здесь уже можно передавать точки в формате row[i], но row[0] это всегда значение timestamp.
     }
     
