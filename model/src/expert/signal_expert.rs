@@ -5,10 +5,10 @@ use crate::learning::AdaptiveThreshold;
 use libm::powf;
 use alloc::boxed::Box;
 
-const NUM_TREES: usize = 15;
+const NUM_TREES: usize = 12;
 const INITIAL_THRESHOLD: f32 = 0.65;
-const TARGET_FPR: f32 = 0.05;
-const MAX_TREE_DEPTH: usize = 20;
+const TARGET_FPR: f32 = 1.0;
+const MAX_TREE_DEPTH: usize = 8;
 
 pub struct SignalExpert {
     trees: Box<[RcfTree; NUM_TREES]>,
@@ -23,7 +23,7 @@ impl SignalExpert {
         let trees = Box::new([
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
+            RcfTree::new(), RcfTree::new(),
         ]);
         
         Self {
@@ -82,7 +82,7 @@ impl SignalExpert {
         self.trees = Box::new([
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
+            RcfTree::new(), RcfTree::new(),
         ]);
         self.threshold = AdaptiveThreshold::new(INITIAL_THRESHOLD, TARGET_FPR);
         self.processed_count = 0;

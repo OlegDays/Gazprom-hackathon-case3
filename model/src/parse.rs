@@ -1,5 +1,5 @@
 // parse.rs
-#![no_std]
+//#![no_std]
 #![allow(static_mut_refs)]
 
 use core::ffi::c_char;
@@ -12,7 +12,8 @@ static mut CSV_LEN: usize = 0;
 static mut CURRENT_POS: usize = 0;
 static mut HEADER_PARSED: bool = false;
 
-struct HeaderField {
+#[derive(Copy, Clone)]
+pub struct HeaderField {
     start: usize,
     end: usize,
 }

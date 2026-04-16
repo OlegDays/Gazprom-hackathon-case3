@@ -21,5 +21,10 @@ codegen-units = 1
 panic = "abort"
 
 [[bin]]
-name = "demo"
-path = "src/main_demo.rs"
+name = "test"
+path = "src/test.rs"
+
+
+[[bin]]
+name = "GO"
+path = "src/parse_use.rs"
