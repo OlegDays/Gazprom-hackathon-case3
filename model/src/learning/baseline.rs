@@ -1,6 +1,6 @@
 //! Модуль адаптивного обучения порога
 
-const HISTORY_BUFFER_SIZE: usize = 100;
+const HISTORY_BUFFER_SIZE: usize = 500;
 
 pub struct AdaptiveThreshold {
     threshold: f32,
@@ -14,7 +14,7 @@ pub struct AdaptiveThreshold {
 impl AdaptiveThreshold {
     pub fn new(_initial: f32, target_fpr: f32) -> Self {
         Self {
-            threshold: 0.7,  // Фиксированный начальный порог
+            threshold: 0.5,  // Фиксированный начальный порог
             target_fpr,
             recent_scores: [0.0; HISTORY_BUFFER_SIZE],
             recent_anomalies: [false; HISTORY_BUFFER_SIZE],
