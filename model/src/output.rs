@@ -132,7 +132,7 @@ pub fn write_f32(fd: i32, value: f32) -> bool {
 /// "TimeStamp;Value;Status (1=Good,0=Bad)\n"
 pub fn write_header(fd: i32, field_name: &[u8]) -> bool {
     let part1 = "TimeStamp;";
-    let part2 = ";Status\n";   // или ";0 - Bad, 1 - Good\n"
+    let part2 = ";0 - Bad, 1 - Good\n";
 
     if !write_str(fd, part1) {
         return false;
