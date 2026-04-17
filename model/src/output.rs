@@ -151,18 +151,24 @@ pub fn write_header(fd: i32, field_name: &[u8]) -> bool {
     write_str(fd, part2)
 }
 
-/// Записывает одну строку данных: timestamp;raw_value;flag\n
-/// flag: 1 = Good (норма), 0 = Bad (аномалия)
-pub fn write_row(fd: i32, timestamp: f32, raw_value: f32, is_good: bool) -> bool {
-    if !write_f32(fd, timestamp) {
-        return false;
+/// Записывает одну строку данных, используя переданный слайс байт для timestamp.
+pub fn write_row_with_timestamp(fd: i32, timestamp: &[u8], raw_value: f32, is_good: bool) -> bool {
+    // Пишем timestamp
+    unsafe {
+        let written = libc::write(fd, timestamp.as_ptr() as *const libc::c_void, timestamp.len());
+        if written != timestamp.len() as isize {
+            return false;
+        }
     }
+    // Разделитель
     if !write_str(fd, ";") {
         return false;
     }
+    // Значение
     if !write_f32(fd, raw_value) {
         return false;
     }
+    // Разделитель и флаг
     if !write_str(fd, ";") {
         return false;
     }

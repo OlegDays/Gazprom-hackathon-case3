@@ -66,22 +66,13 @@ pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32
     
     let mut ensemble = Ensemble20::new();
     
-    // Массив для одной строки: [timestamp, field1, field2, ..., fieldN]
-    let mut row = [0.0f32; parse::DATA_FIELDS_COUNT + 1];
-
-    while parse::export_row(&mut row) {
-		let mut values = [0.0; parse::DATA_FIELDS_COUNT];
-		values.copy_from_slice(&row[1..]); // копируем элементы с индекса 1 до конца (20 элементов)
+    while let Some((ts_bytes, values)) = parse::export_row() {
 		let result = ensemble.process_frame(&values);
 		for i in 0..parse::DATA_FIELDS_COUNT {
-			// здесь уже можно передавать точки в формате row[i], но row[0] это всегда значение timestamp.
-			let score = result.scores[i];
-            // anomalies[i] == true -> аномалия (Bad, 0), иначе Good (1)
-            let is_good = !result.anomalies[i];
-            if !output::write_row(file_descriptors[i], row[0], values[i], is_good) {
-                // Ошибка записи – можно прервать выполнение
-                return 7;
-			}
+			let is_good = !result.anomalies[i];
+			if !output::write_row_with_timestamp(file_descriptors[i], ts_bytes, values[i], is_good) {
+				return 7;
+           }
 		}
 	}
     

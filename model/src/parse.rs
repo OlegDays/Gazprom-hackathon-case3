@@ -169,35 +169,36 @@ pub fn count_lines() -> usize {
 
 /// Извлекает timestamp и DATA_FIELDS_COUNT чисел из текущей строки.
 /// Результат помещается в out: out[0] = timestamp, out[1..] = значения полей.
-pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT + 1]) -> bool {
+pub fn export_row() -> Option<(&'static [u8], [f32; DATA_FIELDS_COUNT])> {
     unsafe {
         if !HEADER_PARSED || CURRENT_POS >= CSV_LEN {
-            return false;
+            return None;
         }
 
         let mut pos = CURRENT_POS;
         let mut idx = 0;
+        let mut values = [0.0f32; DATA_FIELDS_COUNT];
 
-        // 1. Парсим timestamp (первое поле)
+                // 1. Получаем timestamp как байтовый слайс (без копирования)
+        let ts_start;
+        let ts_end;
+
+        // Пропускаем пробелы
         while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
             pos += 1;
         }
-        let start_ts = pos;
+        ts_start = pos;
         while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
             pos += 1;
         }
-        let end_ts = pos;
-        if let Some(ts) = parse_f32(&CSV_BUFFER[start_ts..end_ts]) {
-            out[0] = ts;
-        } else {
-            return false;
-        }
+        ts_end = pos;
+        let timestamp_bytes = &CSV_BUFFER[ts_start..ts_end];
 
         // Пропускаем ';' после timestamp
         if pos < CSV_LEN && CSV_BUFFER[pos] == b';' {
             pos += 1;
         } else {
-            return false;
+            return None;
         }
 
         // 2. Парсим DATA_FIELDS_COUNT чисел
@@ -214,10 +215,10 @@ pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT + 1]) -> bool {
             let end = pos;
 
             if let Some(value) = parse_f32(&CSV_BUFFER[start..end]) {
-                out[idx + 1] = value;
+                values[idx] = value;
                 idx += 1;
             } else {
-                return false;
+                return None;
             }
 
             if pos < CSV_LEN && CSV_BUFFER[pos] == b';' {
@@ -226,7 +227,7 @@ pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT + 1]) -> bool {
         }
 
         if idx != DATA_FIELDS_COUNT {
-            return false;
+            return None;
         }
 
         // Переход к следующей строке
@@ -238,7 +239,7 @@ pub fn export_row(out: &mut [f32; DATA_FIELDS_COUNT + 1]) -> bool {
         }
         CURRENT_POS = pos;
 
-        true
+        Some((timestamp_bytes, values))
     }
 }
 
@@ -296,4 +297,29 @@ fn parse_f32(s: &[u8]) -> Option<f32> {
     }
 
     Some(sign * value)
+}
+
+/// Возвращает ссылку на байты timestamp текущей строки.
+/// Предполагается, что CURRENT_POS указывает на начало строки.
+/// После вызова позиция НЕ сдвигается — это делает export_row позже.
+pub fn get_current_timestamp_bytes() -> Option<&'static [u8]> {
+    unsafe {
+        if !HEADER_PARSED || CURRENT_POS >= CSV_LEN {
+            return None;
+        }
+        let mut pos = CURRENT_POS;
+        // Пропускаем пробелы перед timestamp
+        while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
+            pos += 1;
+        }
+        let start = pos;
+        // Ищем разделитель ';' или конец строки
+        while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
+            pos += 1;
+        }
+        if pos == start {
+            return None; // пустой timestamp
+        }
+        Some(&CSV_BUFFER[start..pos])
+    }
 }
