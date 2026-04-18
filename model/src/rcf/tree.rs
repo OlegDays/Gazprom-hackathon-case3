@@ -2,10 +2,8 @@
 
 use super::node::Node;
 
-use alloc::boxed::Box;
-
 const MAX_NODES: usize = 128;
-const MIN_SPLIT_SAMPLES: u16 = 8;   // Уменьшаем до 5 для более частого разделения
+const MIN_SPLIT_SAMPLES: u16 = 8;
 const MAX_DEPTH: usize = 20;
 
 pub struct InsertResult {
@@ -14,14 +12,14 @@ pub struct InsertResult {
 }
 
 pub struct RcfTree {
-    nodes: Box<[Node; MAX_NODES]>,
+    nodes: [Node; MAX_NODES],
     node_count: usize,
 }
 
 
 impl RcfTree {
     pub fn new() -> Self {
-        let mut nodes = Box::new([Node::new(); MAX_NODES]);
+        let mut nodes = [Node::new(); MAX_NODES];
         nodes[0] = Node::new();
         Self {
             nodes,

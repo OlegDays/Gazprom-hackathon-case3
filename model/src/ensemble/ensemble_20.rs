@@ -1,21 +1,20 @@
 //! Ансамбль из 20 экспертов для обработки 20 потоков данных
 
 use crate::expert::SignalExpert;
-use alloc::boxed::Box;
 
 pub struct Ensemble20 {
-    experts: Box<[SignalExpert; 20]>,
+	experts : [SignalExpert; 20],
 }
 
 impl Ensemble20 {
     pub fn new() -> Self {
         Self {
-            experts: Box::new([
+            experts: [
                 SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
                 SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
                 SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
                 SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(), SignalExpert::new(),
-            ]),
+            ],
         }
     }
     
@@ -23,7 +22,6 @@ impl Ensemble20 {
         let mut scores = [0.0; 20];
         let mut anomalies = [false; 20];
         
-        // ИСПРАВЛЕНО: итерация с индексами
         for i in 0..20 {
             scores[i] = self.experts[i].process(values[i]);
             anomalies[i] = scores[i] > self.experts[i].get_threshold();
@@ -41,7 +39,6 @@ impl Ensemble20 {
     }
     
     pub fn reset(&mut self) {
-        // ИСПРАВЛЕНО: итерация по массиву через iter_mut()
         for expert in self.experts.iter_mut() {
             expert.reset();
         }

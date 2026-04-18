@@ -1,0 +1,9 @@
+[target.x86_64-unknown-linux-musl]
+linker = "musl-gcc"
+rustflags = ["-C", "link-arg=-lc"]
+
+[build]
+rustflags = ["-C", "panic=abort"]
+
+[unstable]
+build-std = ["core", "alloc"]
