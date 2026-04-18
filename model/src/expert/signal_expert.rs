@@ -6,7 +6,7 @@ use libm::powf;
 use alloc::boxed::Box;
 
 const NUM_TREES: usize = 25;
-const INITIAL_THRESHOLD: f32 = 0.7;
+const INITIAL_THRESHOLD: f32 = 0.65;
 const TARGET_FPR: f32 = 5.0;
 const MAX_TREE_DEPTH: usize = 20;
 const RESET_INTERVAL: usize = 2000;
@@ -20,6 +20,11 @@ pub struct SignalExpert {
     value_history: [f32; 200],
     history_idx: usize,
     history_filled: bool,
+    
+    // Флаг инициализации
+    initialized: bool,
+    init_buffer: [f32; 10],
+    init_count: usize,
 }
 
 impl SignalExpert {
@@ -39,18 +44,37 @@ impl SignalExpert {
             value_history: [0.0; 200],
             history_idx: 0,
             history_filled: false,
+            initialized: false,
+            init_buffer: [0.0; 10],
+            init_count: 0,
         }
     }
     
     pub fn process(&mut self, value: f32) -> f32 {
         self.processed_count += 1;
         
+        // Инициализация: собираем первые 10 значений для заполнения истории
+        if !self.initialized {
+            self.init_buffer[self.init_count] = value;
+            self.init_count += 1;
+            
+            if self.init_count == 10 {
+                // Заполняем историю первыми значениями
+                let mean = self.init_buffer.iter().sum::<f32>() / 10.0;
+                for i in 0..200 {
+                    self.value_history[i] = mean;
+                }
+                self.initialized = true;
+                self.history_filled = true;
+            }
+            
+            // Во время инициализации возвращаем низкий скор
+            return 0.1;
+        }
+        
         // Сохраняем значение в историю
         self.value_history[self.history_idx] = value;
         self.history_idx = (self.history_idx + 1) % 200;
-        if self.history_idx == 0 {
-            self.history_filled = true;
-        }
         
         // Периодический частичный сброс
         if self.processed_count % RESET_INTERVAL == 0 {
@@ -61,11 +85,7 @@ impl SignalExpert {
         let score = self.compute_rcf_score(value);
         
         // 2. Корректируем скор на основе локальной волатильности
-        let adjusted_score = if self.history_filled {
-            self.adjust_score_by_volatility(score, value)
-        } else {
-            score
-        };
+        let adjusted_score = self.adjust_score_by_volatility(score, value);
         
         // 3. Применяем порог
         let is_anomaly = adjusted_score > self.threshold.get_threshold();
@@ -88,11 +108,11 @@ impl SignalExpert {
         let score = 1.0 - (avg_depth / MAX_TREE_DEPTH as f32);
         
         // Усиливаем нелинейно
-        powf(score, 0.8).clamp(0.0, 1.0)
+        powf(score, 0.9).clamp(0.0, 1.0)
     }
     
     fn adjust_score_by_volatility(&self, score: f32, value: f32) -> f32 {
-        // Вычисляем среднее и std по истории
+        // Вычисляем статистику по истории
         let mut sum = 0.0;
         let mut min_val = f32::MAX;
         let mut max_val = f32::MIN;
@@ -107,21 +127,36 @@ impl SignalExpert {
         let mean = sum / 200.0;
         let range = max_val - min_val;
         
-        // Если значение выходит за пределы исторического диапазона
-        if value < min_val - range * 0.1 || value > max_val + range * 0.1 {
-            return score.max(0.85);  // Точно аномалия
+        // Если диапазон слишком маленький (заморозка) — это аномалия
+        if range < 0.001 {
+            return score.max(0.85);
         }
         
-        // Если значение близко к среднему — снижаем скор
+        // Проверяем резкий скачок (изменение за 1 шаг)
+        let prev_value = self.value_history[(self.history_idx + 199) % 200];
+        let step = (value - prev_value).abs();
+        let step_normalized = step / (range + 0.001);
+        
+        // Резкий скачок (>30% от исторического диапазона) — точно аномалия
+        if step_normalized > 0.3 {
+            return score.max(0.9);
+        }
+        
+        // Выход за исторический диапазон — точно аномалия
+        if value < min_val - range * 0.1 || value > max_val + range * 0.1 {
+            return score.max(0.85);
+        }
+        
+        // Вычисляем отклонение от среднего
         let deviation = (value - mean).abs();
         let normalized_dev = deviation / (range + 0.001);
         
-        if normalized_dev < 0.2 {
-            // Близко к среднему — скорее всего норма
-            score * 0.4
-        } else if normalized_dev > 0.8 {
+        if normalized_dev < 0.15 {
+            // Очень близко к среднему — небольшая корректировка вниз
+            score * 0.7
+        } else if normalized_dev > 0.6 {
             // Далеко от среднего — усиливаем
-            score.max(0.7)
+            score.max(0.75)
         } else {
             score
         }
@@ -150,6 +185,9 @@ impl SignalExpert {
         self.value_history = [0.0; 200];
         self.history_idx = 0;
         self.history_filled = false;
+        self.initialized = false;
+        self.init_buffer = [0.0; 10];
+        self.init_count = 0;
     }
     
     pub fn processed_count(&self) -> usize {
