@@ -6,7 +6,7 @@ use libm::powf;
 use alloc::boxed::Box;
 
 const NUM_TREES: usize = 25;
-const INITIAL_THRESHOLD: f32 = 0.6;
+const INITIAL_THRESHOLD: f32 = 0.75;
 const TARGET_FPR: f32 = 5.0;
 const MAX_TREE_DEPTH: usize = 20;
 
