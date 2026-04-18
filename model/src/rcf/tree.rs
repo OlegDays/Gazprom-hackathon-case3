@@ -1,11 +1,12 @@
 //! Дерево случайного разреза (Random Cut Tree)
 
 use super::node::Node;
+
 use alloc::boxed::Box;
 
 const MAX_NODES: usize = 128;
-const MIN_SPLIT_SAMPLES: u16 = 3;   // Уменьшаем до 5 для более частого разделения
-const MAX_DEPTH: usize = 8;
+const MIN_SPLIT_SAMPLES: u16 = 8;   // Уменьшаем до 5 для более частого разделения
+const MAX_DEPTH: usize = 20;
 
 pub struct InsertResult {
     pub depth: usize,
@@ -16,6 +17,7 @@ pub struct RcfTree {
     nodes: Box<[Node; MAX_NODES]>,
     node_count: usize,
 }
+
 
 impl RcfTree {
     pub fn new() -> Self {
