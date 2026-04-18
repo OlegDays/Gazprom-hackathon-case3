@@ -23,11 +23,6 @@ impl SignalExpert {
     pub fn new() -> Self {
         let trees = [
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
         ];
         
         Self {
@@ -95,9 +90,9 @@ impl SignalExpert {
     
     pub fn reset(&mut self) {
 
-        self.trees = Box::new([
+        self.trees = [
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-        ]);
+        ];
         self.threshold = AdaptiveThreshold::new(INITIAL_THRESHOLD, TARGET_FPR);
         self.processed_count = 0;
         self.anomaly_streak = 0;
