@@ -1,6 +1,7 @@
 //! Дерево случайного разреза (Random Cut Tree)
 
 use super::node::Node;
+
 use alloc::boxed::Box;
 
 const MAX_NODES: usize = 128;
@@ -16,6 +17,7 @@ pub struct RcfTree {
     nodes: Box<[Node; MAX_NODES]>,
     node_count: usize,
 }
+
 
 impl RcfTree {
     pub fn new() -> Self {
