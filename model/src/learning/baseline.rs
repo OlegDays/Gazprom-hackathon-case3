@@ -1,6 +1,6 @@
 //! Модуль адаптивного обучения порога
 
-const HISTORY_BUFFER_SIZE: usize = 500;  // 10 секунд при 20 мс
+const HISTORY_BUFFER_SIZE: usize = 100;  // 10 секунд при 20 мс
 const ADJUSTMENT_SPEED: f32 = 0.03;
 
 pub struct AdaptiveThreshold {

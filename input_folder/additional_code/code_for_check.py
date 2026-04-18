@@ -8,7 +8,8 @@ warnings.filterwarnings('ignore')
 # ==========================================
 # 1. Истинный датасет
 # ==========================================
-true_path = r'C:/hackatons/gazprom_hackaton/code_for_synthetic_generation/synthetic_datasets/bad_datasets/datasets_with_marks/synthetic_datasets_bad_contact/synthetic_dataset_bad_contact1.csv'
+#заливаете сюда путь к датасету с метками (можно менять цифру от 1 до 5)
+true_path = r'C:/hackatons/gazprom_hackaton/code_for_synthetic_generation/Gazprom-hackathon-case3/input_folder/bad_datasets/synthetic_datasets_with_marks/synthetic_datasets_multi-break/synthetic_dataset_1.csv'
 df_true = pd.read_csv(true_path, sep=';', encoding = 'cp1251')
 df_true.columns = df_true.columns.str.strip()
 df_true['TimeStamp'] = pd.to_datetime(df_true['TimeStamp'], errors='coerce')
@@ -19,7 +20,7 @@ df_true['true_label'] = df_true['Anomaly_Class'].apply(lambda x: 1 if x == 0 els
 # 2. Загрузка модельных файлов
 # ==========================================
 base_dir = r'C:/hackatons/gazprom_hackaton/code_for_synthetic_generation/Gazprom-hackathon-case3/model/output/'
-model_files = [f'{base_dir}{i}.csv' for i in range(1, 18)]
+model_files = [f'{base_dir}{i}.csv' for i in range(1, 21)]
 
 def detect_separator(file_path):
     """Определяет разделитель по первой строке файла"""
