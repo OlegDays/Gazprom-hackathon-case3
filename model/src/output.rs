@@ -3,6 +3,7 @@
 
 use core::ffi::c_char;
 use core::str;
+use libm::{fabsf, truncf, fmodf, roundf};
 
 const OUTPUT_DIR: &[u8] = b"output\0";
 const PERMISSIONS: libc::mode_t = 0o666;
@@ -100,9 +101,9 @@ pub fn write_f32(fd: i32, value: f32) -> bool {
         buf[pos] = b'-';
         pos += 1;
     }
-    let abs_val = value.abs();
-    let int_part = abs_val.trunc() as u32;
-    let frac_part = ((abs_val.fract() * 1_000_000.0).round() as u32) % 1_000_000;
+    let abs_val = fabsf(value);
+    let int_part = truncf(abs_val) as u32;
+    let frac_part = (roundf(fmodf(abs_val, 1.0) * 1_000_000.0) as u32) % 1_000_000;
 
     // Целая часть
     let mut temp = int_part;

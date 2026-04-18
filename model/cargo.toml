@@ -11,19 +11,12 @@ crate-type = ["rlib"]
 [dependencies]
 libc = "0.2"
 libm = "0.2"
-lazy_static = "1.4"
-parking_lot = "0.12"
 
 [profile.release]
 opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
-
-[[bin]]
-name = "test"
-path = "src/test.rs"
-
 
 [[bin]]
 name = "GO"

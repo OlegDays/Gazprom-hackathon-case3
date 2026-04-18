@@ -3,7 +3,6 @@
 use crate::rcf::RcfTree;
 use crate::learning::AdaptiveThreshold;
 use libm::powf;
-use alloc::boxed::Box;
 
 const NUM_TREES: usize = 25;
 const INITIAL_THRESHOLD: f32 = 0.65;
@@ -12,7 +11,7 @@ const MAX_TREE_DEPTH: usize = 20;
 const RESET_INTERVAL: usize = 2000;
 
 pub struct SignalExpert {
-    trees: Box<[RcfTree; NUM_TREES]>,
+    trees: [RcfTree; NUM_TREES],
     threshold: AdaptiveThreshold,
     processed_count: usize,
     
@@ -29,13 +28,13 @@ pub struct SignalExpert {
 
 impl SignalExpert {
     pub fn new() -> Self {
-        let trees = Box::new([
+        let trees = [
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
             RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-        ]);
+        ];
         
         Self {
             trees,
@@ -173,13 +172,9 @@ impl SignalExpert {
     }
     
     pub fn reset(&mut self) {
-        self.trees = Box::new([
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-            RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(), RcfTree::new(),
-        ]);
+        // Присваиваем каждому элементу новое дерево
+        for i in 0..NUM_TREES {
+            self.trees[i] = RcfTree::new();
         self.threshold = AdaptiveThreshold::new(INITIAL_THRESHOLD, TARGET_FPR);
         self.processed_count = 0;
         self.value_history = [0.0; 200];
@@ -188,6 +183,7 @@ impl SignalExpert {
         self.initialized = false;
         self.init_buffer = [0.0; 10];
         self.init_count = 0;
+		}
     }
     
     pub fn processed_count(&self) -> usize {
