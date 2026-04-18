@@ -9,7 +9,7 @@ warnings.filterwarnings('ignore')
 # 1. Истинный датасет
 # ==========================================
 true_path = r'C:/hackatons/gazprom_hackaton/code_for_synthetic_generation/synthetic_datasets/bad_datasets/datasets_with_marks/synthetic_datasets_bad_contact/synthetic_dataset_bad_contact1.csv'
-df_true = pd.read_csv(true_path, sep=';')
+df_true = pd.read_csv(true_path, sep=';', encoding = 'cp1251')
 df_true.columns = df_true.columns.str.strip()
 df_true['TimeStamp'] = pd.to_datetime(df_true['TimeStamp'], errors='coerce')
 df_true = df_true.sort_values('TimeStamp').reset_index(drop=True)
