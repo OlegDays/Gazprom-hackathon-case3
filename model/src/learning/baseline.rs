@@ -1,7 +1,7 @@
 //! Модуль адаптивного обучения порога
 
-const HISTORY_BUFFER_SIZE: usize = 500;  // 10 секунд при 20 мс
-const ADJUSTMENT_SPEED: f32 = 0.03;
+const HISTORY_BUFFER_SIZE: usize = 500;
+const ADJUSTMENT_SPEED: f32 = 0.02;
 
 pub struct AdaptiveThreshold {
     threshold: f32,
@@ -15,7 +15,7 @@ pub struct AdaptiveThreshold {
 impl AdaptiveThreshold {
     pub fn new(_initial: f32, target_fpr: f32) -> Self {
         Self {
-            threshold: 0.6,  // Начинаем ниже, чтобы не пропустить реальные аномалии
+            threshold: 0.78,
             target_fpr,
             recent_scores: [0.0; HISTORY_BUFFER_SIZE],
             recent_anomalies: [false; HISTORY_BUFFER_SIZE],
@@ -33,7 +33,6 @@ impl AdaptiveThreshold {
             self.filled = true;
         }
         
-        // Адаптируемся каждые 10 точек (200 мс)
         if self.filled && self.index % 10 == 0 {
             self.adjust_threshold();
         }
@@ -58,11 +57,10 @@ impl AdaptiveThreshold {
             self.threshold -= ADJUSTMENT_SPEED * 0.5;
         }
         
-        // Границы порога
-        if self.threshold < 0.35 {
-            self.threshold = 0.35;
-        } else if self.threshold > 0.95 {
-            self.threshold = 0.95;
+        if self.threshold < 0.70 {
+            self.threshold = 0.70;
+        } else if self.threshold > 0.90 {
+            self.threshold = 0.90;
         }
     }
     
