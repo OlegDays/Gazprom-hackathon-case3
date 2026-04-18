@@ -1,36 +1,43 @@
 // parse_use.rs
 // Заготовка для main.rs, имеющая основу логики для парсинга данных из csv и передачи их в анализирующую систему
-#![no_std]
+//#![no_std]
 #![no_main]
 #![allow(static_mut_refs)]
 
 extern crate libc;
 
+use core::array::from_fn;
 use core::ffi::CStr;
-use core::panic::PanicInfo;
-use anomaly_detector::Ensemble20;
+use core::fmt::Write;
+use core::str;
+use core::convert::TryInto;
+use anomaly_detector::{Ensemble20};
 
 mod parse;
 mod output;
 
-#[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    unsafe {
-        libc::write(2, b"Panic occurred\n\0".as_ptr() as *const libc::c_void, 15);
-        libc::exit(1);
-    }
+struct HeaderField {
+	start: usize,
+    end: usize,
 }
 
 #[no_mangle]
-pub extern "C" fn main() -> i32 {
+pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32 {
+	
+//	    if argc < 2 {
+        // Недостаточно аргументов: требуется имя CSV-файла
+//        return 1;
+//    }
+    
+//	let filename = unsafe { *argv.add(1) };
     let path = CStr::from_bytes_with_nul(b"1.csv\0").unwrap();
 
     if !parse::parse_init(path.as_ptr()) {
-		return 1;
+        return 1;
     }
 
     if !parse::parse_header() {
-		return 2;
+        return 2;
     }
     
     if !output::create_output_dir() {
@@ -38,6 +45,7 @@ pub extern "C" fn main() -> i32 {
     }
     
     let mut file_descriptors = [0i32; parse::DATA_FIELDS_COUNT];
+    let mut idx: usize = 0;
     
     for i in 0..parse::DATA_FIELDS_COUNT {
         // Получаем имя поля из CSV-заголовка
@@ -50,7 +58,7 @@ pub extern "C" fn main() -> i32 {
             return 5;
         }
         file_descriptors[i] = fd;
-        // Записываем заголовок в файл
+                // Записываем заголовок в файл
         if !output::write_header(fd, field_name) {
             return 6;
         }
@@ -69,7 +77,17 @@ pub extern "C" fn main() -> i32 {
 	}
     
     for i in 0..parse::DATA_FIELDS_COUNT {
-		unsafe { libc::close(file_descriptors[i]);}
+		unsafe {
+			libc::close(file_descriptors[i]);
+		}
     }
+    
     0
 }
+
+/*
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    loop {}
+}
+*/

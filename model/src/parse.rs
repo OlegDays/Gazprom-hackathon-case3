@@ -1,4 +1,5 @@
 // parse.rs
+//#![no_std]
 #![allow(static_mut_refs)]
 
 use core::ffi::c_char;
@@ -36,7 +37,7 @@ pub fn parse_init(path: *const c_char) -> bool {
             return false;
         }
 
-        let len = bytes_read as usize;
+        let mut len = bytes_read as usize;
         if len >= MAX_CSV_SIZE {
             return false;
         }
@@ -136,6 +137,10 @@ pub fn parse_header() -> bool {
         
         // Определяем кодировку: если весь заголовок валидный UTF-8 — считаем UTF-8, иначе CP1251.
 		let mut is_utf8 = true;
+		let header_start = 0; // начало строки заголовка (можно запомнить в parse_header)
+		// Ищем начало строки заголовка (после возможных пустых строк перед данными?)
+		// Проще: перебрать все байты от 0 до CURRENT_POS-1 (где лежит первая строка)
+		// Но у нас уже есть индексы полей в HEADER_FIELDS. Можно проверить только имена полей.
 		for idx in 0..DATA_FIELDS_COUNT {
 			let field = &HEADER_FIELDS[idx];
 			let slice = &CSV_BUFFER[field.start..field.end];
@@ -185,6 +190,37 @@ pub fn get_header_field(i: usize) -> Option<&'static [u8]> {
         }
         let len = HEADER_UTF8_LEN[i];
         Some(&HEADER_UTF8[i][..len])
+    }
+}
+
+
+/// Подсчёт количества строк данных (если нужно). Должна вызываться после parse_header().
+pub fn count_lines() -> usize {
+    unsafe {
+        if !HEADER_PARSED {
+            return 0;
+        }
+        let mut pos = CURRENT_POS;
+        let mut count = 0;
+        let mut in_line = false;
+
+        while pos < CSV_LEN {
+            let b = CSV_BUFFER[pos];
+            if b == b'\n' {
+                if in_line {
+                    count += 1;
+                    in_line = false;
+                }
+            } else {
+                in_line = true;
+            }
+            pos += 1;
+        }
+        // Если последняя строка не заканчивается \n, но содержит данные
+        if in_line {
+            count += 1;
+        }
+        count
     }
 }
 
@@ -318,6 +354,31 @@ fn parse_f32(s: &[u8]) -> Option<f32> {
     }
 
     Some(sign * value)
+}
+
+/// Возвращает ссылку на байты timestamp текущей строки.
+/// Предполагается, что CURRENT_POS указывает на начало строки.
+/// После вызова позиция НЕ сдвигается — это делает export_row позже.
+pub fn get_current_timestamp_bytes() -> Option<&'static [u8]> {
+    unsafe {
+        if !HEADER_PARSED || CURRENT_POS >= CSV_LEN {
+            return None;
+        }
+        let mut pos = CURRENT_POS;
+        // Пропускаем пробелы перед timestamp
+        while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
+            pos += 1;
+        }
+        let start = pos;
+        // Ищем разделитель ';' или конец строки
+        while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
+            pos += 1;
+        }
+        if pos == start {
+            return None; // пустой timestamp
+        }
+        Some(&CSV_BUFFER[start..pos])
+    }
 }
 
 // Таблица соответствия байт 0x80..0xFF -> Unicode (CP1251)

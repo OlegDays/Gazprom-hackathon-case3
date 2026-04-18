@@ -11,6 +11,8 @@
 
 #![no_std]
 
+extern crate alloc;  // ДОБАВИТЬ
+
 pub mod rcf;
 pub mod learning;
 pub mod expert;
