@@ -6,15 +6,11 @@ use core::ffi::c_char;
 
 pub const MAX_CSV_SIZE: usize = 30 * 1024 * 1024;  // 30 МБ
 pub const DATA_FIELDS_COUNT: usize = 20;          // количество полей данных (без timestamp)
-// Максимальная длина имени поля в UTF-8 (исходное ≤ 255 байт в CP1251 → ≤ 510 байт в UTF-8)
-const MAX_FIELD_UTF8_LEN: usize = 256;
 
 static mut CSV_BUFFER: [u8; MAX_CSV_SIZE] = [0; MAX_CSV_SIZE];
 static mut CSV_LEN: usize = 0;
 static mut CURRENT_POS: usize = 0;
 static mut HEADER_PARSED: bool = false;
-static mut HEADER_UTF8: [[u8; MAX_FIELD_UTF8_LEN]; DATA_FIELDS_COUNT] = [[0; MAX_FIELD_UTF8_LEN]; DATA_FIELDS_COUNT];
-static mut HEADER_UTF8_LEN: [usize; DATA_FIELDS_COUNT] = [0; DATA_FIELDS_COUNT];
 
 #[derive(Copy, Clone)]
 pub struct HeaderField {
@@ -63,21 +59,11 @@ pub fn parse_init(path: *const c_char) -> bool {
         CSV_LEN = wp;
         CURRENT_POS = 0;
         HEADER_PARSED = false;
-        // Удаляем BOM в начале файла, если он есть
-		if CSV_LEN >= 3 && CSV_BUFFER[0] == 0xEF && CSV_BUFFER[1] == 0xBB && CSV_BUFFER[2] == 0xBF {
-			// Сдвигаем данные на 3 байта влево
-			let mut i = 0;
-			while i + 3 < CSV_LEN {
-				CSV_BUFFER[i] = CSV_BUFFER[i + 3];
-				i += 1;
-			}
-			CSV_LEN -= 3;
-		}
         true
     }
 }
 
-/// Парсинг заголовка (первой строки).
+/// Парсинг заголовка (первой строки). Сохраняются имена полей данных (без timestamp).
 pub fn parse_header() -> bool {
     unsafe {
         if HEADER_PARSED {
@@ -88,6 +74,7 @@ pub fn parse_header() -> bool {
         }
 
         let mut pos = 0;
+        // Пропускаем первое поле (timestamp) до ';'
         while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
             pos += 1;
         }
@@ -134,49 +121,6 @@ pub fn parse_header() -> bool {
             pos += 1;
         }
         CURRENT_POS = pos;
-        
-        // Определяем кодировку: если весь заголовок валидный UTF-8 — считаем UTF-8, иначе CP1251.
-		let mut is_utf8 = true;
-		let header_start = 0; // начало строки заголовка (можно запомнить в parse_header)
-		// Ищем начало строки заголовка (после возможных пустых строк перед данными?)
-		// Проще: перебрать все байты от 0 до CURRENT_POS-1 (где лежит первая строка)
-		// Но у нас уже есть индексы полей в HEADER_FIELDS. Можно проверить только имена полей.
-		for idx in 0..DATA_FIELDS_COUNT {
-			let field = &HEADER_FIELDS[idx];
-			let slice = &CSV_BUFFER[field.start..field.end];
-			// Проверяем, является ли slice корректным UTF-8
-			if core::str::from_utf8(slice).is_err() {
-				is_utf8 = false;
-				break;
-			}
-		}
-
-		// Конвертируем каждое поле в UTF-8 и сохраняем в HEADER_UTF8
-		for idx in 0..DATA_FIELDS_COUNT {
-			let field = &HEADER_FIELDS[idx];
-			let src = &CSV_BUFFER[field.start..field.end];
-			let dst = &mut HEADER_UTF8[idx];
-			let mut dst_pos = 0;
-			if is_utf8 {
-				// Просто копируем байты (уже UTF-8)
-				for &b in src {
-					if dst_pos < MAX_FIELD_UTF8_LEN {
-						dst[dst_pos] = b;
-						dst_pos += 1;
-					}
-				}
-			} else {
-				// Конвертируем из CP1251
-				for &b in src {
-					let written = encode_utf8_from_cp1251(b, &mut dst[dst_pos..]);
-					dst_pos += written;
-					if dst_pos >= MAX_FIELD_UTF8_LEN {
-						break;
-					}
-				}
-			}
-			HEADER_UTF8_LEN[idx] = dst_pos;
-		}
         HEADER_PARSED = true;
         true
     }
@@ -188,11 +132,10 @@ pub fn get_header_field(i: usize) -> Option<&'static [u8]> {
         if !HEADER_PARSED || i >= DATA_FIELDS_COUNT {
             return None;
         }
-        let len = HEADER_UTF8_LEN[i];
-        Some(&HEADER_UTF8[i][..len])
+        let field = &HEADER_FIELDS[i];
+        Some(&CSV_BUFFER[field.start..field.end])
     }
 }
-
 
 /// Подсчёт количества строк данных (если нужно). Должна вызываться после parse_header().
 pub fn count_lines() -> usize {
@@ -378,45 +321,5 @@ pub fn get_current_timestamp_bytes() -> Option<&'static [u8]> {
             return None; // пустой timestamp
         }
         Some(&CSV_BUFFER[start..pos])
-    }
-}
-
-// Таблица соответствия байт 0x80..0xFF -> Unicode (CP1251)
-const CP1251_TO_UNICODE: [u16; 128] = [
-    0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021, // 80..87
-    0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F, // 88..8F
-    0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, // 90..97
-    0x0098, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F, // 98..9F
-    0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7, // A0..A7
-    0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407, // A8..AF
-    0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7, // B0..B7
-    0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457, // B8..BF
-    0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417, // C0..C7
-    0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F, // C8..CF
-    0x0420, 0x0421, 0x0422, 0x0423, 0x0424, 0x0425, 0x0426, 0x0427, // D0..D7
-    0x0428, 0x0429, 0x042A, 0x042B, 0x042C, 0x042D, 0x042E, 0x042F, // D8..DF
-    0x0430, 0x0431, 0x0432, 0x0433, 0x0434, 0x0435, 0x0436, 0x0437, // E0..E7
-    0x0438, 0x0439, 0x043A, 0x043B, 0x043C, 0x043D, 0x043E, 0x043F, // E8..EF
-    0x0440, 0x0441, 0x0442, 0x0443, 0x0444, 0x0445, 0x0446, 0x0447, // F0..F7
-    0x0448, 0x0449, 0x044A, 0x044B, 0x044C, 0x044D, 0x044E, 0x044F, // F8..FF
-];
-
-/// Преобразует байт CP1251 в последовательность UTF-8 в `dst`.
-/// Возвращает количество записанных байт.
-fn encode_utf8_from_cp1251(byte: u8, dst: &mut [u8]) -> usize {
-    if byte < 0x80 {
-        dst[0] = byte;
-        return 1;
-    }
-    let cp = CP1251_TO_UNICODE[(byte - 0x80) as usize] as u32;
-    if cp < 0x800 {
-        dst[0] = 0xC0 | ((cp >> 6) as u8);
-        dst[1] = 0x80 | ((cp & 0x3F) as u8);
-        2
-    } else {
-        dst[0] = 0xE0 | ((cp >> 12) as u8);
-        dst[1] = 0x80 | (((cp >> 6) & 0x3F) as u8);
-        dst[2] = 0x80 | ((cp & 0x3F) as u8);
-        3
     }
 }
