@@ -14,7 +14,7 @@ pub struct AdaptiveThreshold {
 impl AdaptiveThreshold {
     pub fn new(_initial: f32, target_fpr: f32) -> Self {
         Self {
-            threshold: 0.5,  // Фиксированный начальный порог
+            threshold: 0.6  ,  // Фиксированный начальный порог
             target_fpr,
             recent_scores: [0.0; HISTORY_BUFFER_SIZE],
             recent_anomalies: [false; HISTORY_BUFFER_SIZE],
