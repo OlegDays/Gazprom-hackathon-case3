@@ -58,7 +58,7 @@ pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32
             return 5;
         }
         file_descriptors[i] = fd;
-                // Записываем заголовок в файл
+        // Записываем заголовок в файл
         if !output::write_header(fd, field_name) {
             return 6;
         }
@@ -77,17 +77,7 @@ pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32
 	}
     
     for i in 0..parse::DATA_FIELDS_COUNT {
-		unsafe {
-			libc::close(file_descriptors[i]);
-		}
+		unsafe {libc::close(file_descriptors[i]);}
     }
-    
     0
 }
-
-/*
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-*/

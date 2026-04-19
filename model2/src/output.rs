@@ -3,6 +3,7 @@
 
 use core::ffi::c_char;
 use core::str;
+use libm::{fabsf, truncf, fmodf, roundf};
 
 const OUTPUT_DIR: &[u8] = b"output\0";
 const PERMISSIONS: libc::mode_t = 0o666;
@@ -55,13 +56,29 @@ pub fn open_output_file(field_name: &[u8], _index: usize) -> i32 {
     }
     path_buf[pos] = 0;
 
-    unsafe {
+    let fd = unsafe {
         libc::open(
             path_buf.as_ptr() as *const c_char,
             libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
             PERMISSIONS,
         )
+    };
+    if fd < 0 {
+        return fd;
     }
+
+    // Записываем UTF-8 BOM (EF BB BF)
+    let bom: [u8; 3] = [0xEF, 0xBB, 0xBF];
+    let written = unsafe {
+        libc::write(fd, bom.as_ptr() as *const libc::c_void, bom.len())
+    };
+
+    if written != bom.len() as isize {
+        unsafe { libc::close(fd); }
+        return -1;
+    }
+
+    fd
 }
 
 /// Записывает строку в файл (используется для заголовков и разделителей)
