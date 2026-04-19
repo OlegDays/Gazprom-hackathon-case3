@@ -1,12 +1,12 @@
-//! Эксперт одного сигнала. Финальная версия: "Сравнение Волатильностей".
-//! Устойчив к шуму, вычислительно эффективен.
+//! Эксперт одного сигнала. Финальная версия: "Сравнение Волатильностей" + "Мертвая Зона".
+//! Радостная версия для копипаста.
 
 use libm::sqrtf;
 
 const LONG_WINDOW_SIZE: usize = 400;
 const SHORT_WINDOW_SIZE: usize = 30; // Это значение используется только для коэффициента alpha
 const MIN_STD: f32 = 0.01;
-const TARGET_FPR_PERCENT: f32 = 3.0; // Более агрессивная цель
+const TARGET_FPR_PERCENT: f32 = 3.0;
 const INITIAL_THRESHOLD: f32 = 0.5;
 
 // --- Адаптивный порог ---
@@ -45,7 +45,6 @@ mod adaptive_threshold {
             let current_fpr = anomaly_count as f32 / 100.0;
             self.ema_fpr = self.ema_fpr * 0.9 + current_fpr * 0.1;
             let error = self.ema_fpr - self.target_fpr;
-            // Ускоряем адаптацию, чтобы быстрее сходиться к цели
             self.value += error * 0.1;
             self.value = self.value.clamp(0.20, 0.80);
         }
@@ -58,18 +57,12 @@ mod adaptive_threshold {
 use adaptive_threshold::AdaptiveThreshold;
 
 pub struct SignalExpert {
-    // Долгосрочная модель
     long_term_mean: f32,
     long_term_std: f32,
-
-    // Онлайн-статистика для короткого окна (O(1) сложность)
     short_term_mean: f32,
-    short_term_sq_diff: f32, // EMA квадрата разницы для вычисления дисперсии
-    
-    // История для обучения
+    short_term_sq_diff: f32,
     training_history: [f32; LONG_WINDOW_SIZE],
     hist_idx: usize,
-
     threshold: AdaptiveThreshold,
     training: bool,
 }
@@ -97,25 +90,16 @@ impl SignalExpert {
             }
             return 0.0;
         }
-
-        // 1. Обновляем онлайн-статистику короткого окна (EMA)
-        let alpha: f32 = 2.0 / (SHORT_WINDOW_SIZE as f32 + 1.0); // ~0.06
+        let alpha: f32 = 2.0 / (SHORT_WINDOW_SIZE as f32 + 1.0);
         self.short_term_mean = self.short_term_mean * (1.0 - alpha) + value * alpha;
         let sq_diff = (value - self.short_term_mean) * (value - self.short_term_mean);
         self.short_term_sq_diff = self.short_term_sq_diff * (1.0 - alpha) + sq_diff * alpha;
-
-        // 2. Вычисляем score
         let score = self.compute_anomaly_score(value);
-
-        // 3. Медленно адаптируем глобальную модель
         if score < 0.1 {
             self.adapt_long_term_model(value);
         }
-
-        // 4. Обновляем порог
         let is_anomaly = score > self.threshold.get();
         self.threshold.update(is_anomaly);
-        
         score
     }
     
@@ -129,7 +113,7 @@ impl SignalExpert {
         }
     }
 
-    fn finish_training(&mut self, last_value: f32) {
+    fn finish_training(&mut self, _last_value: f32) {
         let sum: f32 = self.training_history.iter().sum();
         self.long_term_mean = sum / LONG_WINDOW_SIZE as f32;
         let mut sq_sum = 0.0;
@@ -137,33 +121,35 @@ impl SignalExpert {
             sq_sum += (v - self.long_term_mean) * (v - self.long_term_mean);
         }
         self.long_term_std = sqrtf(sq_sum / LONG_WINDOW_SIZE as f32).max(MIN_STD);
-        
-        // Инициализируем онлайн-статистику на основе долгосрочной
         self.short_term_mean = self.long_term_mean;
         self.short_term_sq_diff = self.long_term_std * self.long_term_std;
-        
         self.training = false;
     }
 
     fn compute_anomaly_score(&self, value: f32) -> f32 {
         let short_term_std = sqrtf(self.short_term_sq_diff).max(MIN_STD);
-
-        // --- Основной score: отношение стандартных отклонений ---
-        // Если текущая волатильность сильно выше или ниже нормы - это аномалия
         let ratio = short_term_std / self.long_term_std;
-        let vol_score = if ratio > 1.0 {
-            // Текущая волатильность выше нормы (шум, выброс)
-            (ratio - 1.0) / 3.0 // ratio=4 -> score=1.0
+
+        // --- "МЕРТВАЯ ЗОНА" ДЛЯ ВОЛАТИЛЬНОСТИ ---
+        const DEAD_ZONE_UPPER: f32 = 1.4;
+        const DEAD_ZONE_LOWER: f32 = 0.6;
+
+        let vol_score = if ratio > DEAD_ZONE_UPPER {
+            (ratio - DEAD_ZONE_UPPER) / 2.0
+        } else if ratio < DEAD_ZONE_LOWER {
+            (DEAD_ZONE_LOWER - ratio) / DEAD_ZONE_LOWER
         } else {
-            // Текущая волатильность ниже нормы (заморозка)
-            (1.0 - ratio) / 0.9 // ratio=0.1 -> score=1.0
+            0.0
         };
 
-        // --- Дополнительный score: Z-оценка для ловли единичных выбросов и дрейфа ---
+        // --- Z-Score для дрейфа и одиночных выбросов ---
         let z_score = ((value - self.long_term_mean) / self.long_term_std).abs();
-        let z_score_norm = (z_score / 5.0).clamp(0.0, 1.0); // z=5 -> 1.0
-
-        // Итоговый score - это максимум из двух подходов
+        let z_score_norm = if z_score > 2.5 {
+            (z_score - 2.5) / 3.0
+        } else {
+            0.0
+        };
+        
         vol_score.max(z_score_norm).clamp(0.0, 1.0)
     }
 
@@ -175,16 +161,10 @@ impl SignalExpert {
     }
 
     pub fn get_threshold(&self) -> f32 {
-        if self.training {
-            1.0
-        } else {
-            self.threshold.get()
-        }
+        if self.training { 1.0 } else { self.threshold.get() }
     }
 
-    pub fn reset(&mut self) {
-        *self = Self::new();
-    }
+    pub fn reset(&mut self) { *self = Self::new(); }
 }
 
 impl Default for SignalExpert {
