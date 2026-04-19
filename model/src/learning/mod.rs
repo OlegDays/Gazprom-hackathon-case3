@@ -1,5 +1,1 @@
-//! Модуль адаптивного обучения
-
-mod baseline;
-
-pub use baseline::AdaptiveThreshold;
+pub mod baseline;

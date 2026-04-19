@@ -72,7 +72,7 @@ pub extern "C" fn main(argc: i32, argv: *const *const c_char) -> i32 {
         }
     }
     
-    let mut ensemble = Ensemble20::new();
+    let ensemble = Ensemble20::init();
     
     while let Some((ts_bytes, values)) = parse::export_row() {
 		let result = ensemble.process_frame(&values);
