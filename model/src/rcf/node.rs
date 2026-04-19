@@ -1,4 +1,4 @@
-//! Узел дерева случайного разреза (Random Cut Forest)
+// Узел дерева случайного разреза (Random Cut Forest)
 
 #[derive(Debug, Clone, Copy)]
 pub struct Node {
@@ -43,7 +43,7 @@ impl Node {
     }
     
    pub fn should_split(&self, min_samples: u16) -> bool {
-    // Разделяем если есть достаточно образцов И есть разброс
+    // Разделяем если есть достаточно образцов + есть разброс
     self.sample_count >= min_samples 
         && self.split_count == 0 
         && self.range() > 0.01  // Требуем минимальный разброс
@@ -54,7 +54,7 @@ impl Node {
             // Разделяем посередине
             self.split_value = self.min_val + self.range() / 2.0;
         } else {
-            // Для одинаковых значений - добавляем небольшое смещение
+            // Для одинаковых значений добавляем небольшое смещение
             self.split_value = self.min_val + 0.1;
         }
         self.split_count = 1;

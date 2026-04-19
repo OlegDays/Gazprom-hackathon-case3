@@ -1,16 +1,19 @@
 // parse.rs
-//#![no_std]
 #![allow(static_mut_refs)]
 
 use core::ffi::c_char;
 
 pub const MAX_CSV_SIZE: usize = 30 * 1024 * 1024;  // 30 МБ
-pub const DATA_FIELDS_COUNT: usize = 20;          // количество полей данных (без timestamp)
+pub const DATA_FIELDS_COUNT: usize = 20;  // количество полей данных (без timestamp)
+// Максимальная длина имени поля в UTF-8 (исходное ≤ 255 байт в CP1251 → ≤ 510 байт в UTF-8)
+const MAX_FIELD_UTF8_LEN: usize = 256;
 
 static mut CSV_BUFFER: [u8; MAX_CSV_SIZE] = [0; MAX_CSV_SIZE];
 static mut CSV_LEN: usize = 0;
 static mut CURRENT_POS: usize = 0;
 static mut HEADER_PARSED: bool = false;
+static mut HEADER_UTF8: [[u8; MAX_FIELD_UTF8_LEN]; DATA_FIELDS_COUNT] = [[0; MAX_FIELD_UTF8_LEN]; DATA_FIELDS_COUNT];
+static mut HEADER_UTF8_LEN: [usize; DATA_FIELDS_COUNT] = [0; DATA_FIELDS_COUNT];
 
 #[derive(Copy, Clone)]
 pub struct HeaderField {
@@ -19,7 +22,7 @@ pub struct HeaderField {
 }
 static mut HEADER_FIELDS: [HeaderField; DATA_FIELDS_COUNT] = [HeaderField { start: 0, end: 0 }; DATA_FIELDS_COUNT];
 
-/// Инициализация: чтение файла и нормализация переводов строк
+// Инициализация: чтение файла и нормализация переводов строк
 pub fn parse_init(path: *const c_char) -> bool {
     unsafe {
         let fd = libc::open(path, libc::O_RDONLY);
@@ -33,12 +36,12 @@ pub fn parse_init(path: *const c_char) -> bool {
             return false;
         }
 
-        let mut len = bytes_read as usize;
+        let len = bytes_read as usize;
         if len >= MAX_CSV_SIZE {
             return false;
         }
 
-        // Нормализация: \r\n -> \n, удаление одиночных \r
+        // Нормализация: \r\n превращается в \n, удаление одиночных \r
         let mut wp = 0;
         let mut rp = 0;
         while rp < len {
@@ -59,11 +62,21 @@ pub fn parse_init(path: *const c_char) -> bool {
         CSV_LEN = wp;
         CURRENT_POS = 0;
         HEADER_PARSED = false;
+        // Удаляем BOM в начале файла, если он есть
+		if CSV_LEN >= 3 && CSV_BUFFER[0] == 0xEF && CSV_BUFFER[1] == 0xBB && CSV_BUFFER[2] == 0xBF {
+			// И сдвигаем данные на 3 байта влево
+			let mut i = 0;
+			while i + 3 < CSV_LEN {
+				CSV_BUFFER[i] = CSV_BUFFER[i + 3];
+				i += 1;
+			}
+			CSV_LEN -= 3;
+		}
         true
     }
 }
 
-/// Парсинг заголовка (первой строки). Сохраняются имена полей данных (без timestamp).
+// Парсинг заголовка (первой строки).
 pub fn parse_header() -> bool {
     unsafe {
         if HEADER_PARSED {
@@ -74,7 +87,6 @@ pub fn parse_header() -> bool {
         }
 
         let mut pos = 0;
-        // Пропускаем первое поле (timestamp) до ';'
         while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
             pos += 1;
         }
@@ -85,7 +97,6 @@ pub fn parse_header() -> bool {
 
         let mut idx = 0;
         while idx < DATA_FIELDS_COUNT && pos < CSV_LEN && CSV_BUFFER[pos] != b'\n' {
-            // Пропускаем начальные пробелы
             while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
                 pos += 1;
             }
@@ -121,54 +132,63 @@ pub fn parse_header() -> bool {
             pos += 1;
         }
         CURRENT_POS = pos;
+        
+        // Определяем кодировку: если весь заголовок корректный UTF-8 — считаем UTF-8, иначе CP1251.
+		let mut is_utf8 = true;
+		for idx in 0..DATA_FIELDS_COUNT {
+			let field = &HEADER_FIELDS[idx];
+			let slice = &CSV_BUFFER[field.start..field.end];
+			// Проверяем, является ли слайс корректным UTF-8
+			if core::str::from_utf8(slice).is_err() {
+				is_utf8 = false;
+				break;
+			}
+		}
+
+		// Конвертируем каждое поле в UTF-8 и сохраняем в HEADER_UTF8
+		for idx in 0..DATA_FIELDS_COUNT {
+			let field = &HEADER_FIELDS[idx];
+			let src = &CSV_BUFFER[field.start..field.end];
+			let dst = &mut HEADER_UTF8[idx];
+			let mut dst_pos = 0;
+			if is_utf8 {
+				// Просто копируем байты (уже UTF-8)
+				for &b in src {
+					if dst_pos < MAX_FIELD_UTF8_LEN {
+						dst[dst_pos] = b;
+						dst_pos += 1;
+					}
+				}
+			} else {
+				// Конвертируем из CP1251
+				for &b in src {
+					let written = encode_utf8_from_cp1251(b, &mut dst[dst_pos..]);
+					dst_pos += written;
+					if dst_pos >= MAX_FIELD_UTF8_LEN {
+						break;
+					}
+				}
+			}
+			HEADER_UTF8_LEN[idx] = dst_pos;
+		}
         HEADER_PARSED = true;
         true
     }
 }
 
-/// Возвращает имя i-го поля данных (0..DATA_FIELDS_COUNT-1) как &[u8]
+// Возвращает имя i-го поля данных (0..DATA_FIELDS_COUNT-1) как &[u8]
 pub fn get_header_field(i: usize) -> Option<&'static [u8]> {
     unsafe {
         if !HEADER_PARSED || i >= DATA_FIELDS_COUNT {
             return None;
         }
-        let field = &HEADER_FIELDS[i];
-        Some(&CSV_BUFFER[field.start..field.end])
+        let len = HEADER_UTF8_LEN[i];
+        Some(&HEADER_UTF8[i][..len])
     }
 }
 
-/// Подсчёт количества строк данных (если нужно). Должна вызываться после parse_header().
-pub fn count_lines() -> usize {
-    unsafe {
-        if !HEADER_PARSED {
-            return 0;
-        }
-        let mut pos = CURRENT_POS;
-        let mut count = 0;
-        let mut in_line = false;
-
-        while pos < CSV_LEN {
-            let b = CSV_BUFFER[pos];
-            if b == b'\n' {
-                if in_line {
-                    count += 1;
-                    in_line = false;
-                }
-            } else {
-                in_line = true;
-            }
-            pos += 1;
-        }
-        // Если последняя строка не заканчивается \n, но содержит данные
-        if in_line {
-            count += 1;
-        }
-        count
-    }
-}
-
-/// Извлекает timestamp и DATA_FIELDS_COUNT чисел из текущей строки.
-/// Результат помещается в out: out[0] = timestamp, out[1..] = значения полей.
+// Извлекает timestamp и DATA_FIELDS_COUNT чисел из текущей строки.
+// Результат помещается в out (out[0] = timestamp, out[1..] = значения полей).
 pub fn export_row() -> Option<(&'static [u8], [f32; DATA_FIELDS_COUNT])> {
     unsafe {
         if !HEADER_PARSED || CURRENT_POS >= CSV_LEN {
@@ -179,7 +199,6 @@ pub fn export_row() -> Option<(&'static [u8], [f32; DATA_FIELDS_COUNT])> {
         let mut idx = 0;
         let mut values = [0.0f32; DATA_FIELDS_COUNT];
 
-                // 1. Получаем timestamp как байтовый слайс (без копирования)
         let ts_start;
         let ts_end;
 
@@ -243,14 +262,14 @@ pub fn export_row() -> Option<(&'static [u8], [f32; DATA_FIELDS_COUNT])> {
     }
 }
 
-/// Парсит f32 из байтового слайса. Поддерживает десятичную точку, знак,
-/// игнорирует точки-разделители тысяч.
+// Парсит f32 из байтового слайса. Поддерживает десятичную точку, знак,
+// игнорирует точки-разделители тысяч.
 fn parse_f32(s: &[u8]) -> Option<f32> {
     if s.is_empty() {
         return None;
     }
 
-    // Находим последнюю точку (десятичную)
+    // Находим последнюю точку
     let mut last_dot_pos = None;
     for (i, &b) in s.iter().enumerate() {
         if b == b'.' {
@@ -281,7 +300,7 @@ fn parse_f32(s: &[u8]) -> Option<f32> {
             if Some(i) == last_dot_pos {
                 after_decimal = true;
             }
-            // иначе это разделитель тысяч – игнорируем
+            // иначе это разделитель тысяч
         } else if byte.is_ascii_digit() {
             let digit = (byte - b'0') as f32;
             if after_decimal {
@@ -299,27 +318,42 @@ fn parse_f32(s: &[u8]) -> Option<f32> {
     Some(sign * value)
 }
 
-/// Возвращает ссылку на байты timestamp текущей строки.
-/// Предполагается, что CURRENT_POS указывает на начало строки.
-/// После вызова позиция НЕ сдвигается — это делает export_row позже.
-pub fn get_current_timestamp_bytes() -> Option<&'static [u8]> {
-    unsafe {
-        if !HEADER_PARSED || CURRENT_POS >= CSV_LEN {
-            return None;
-        }
-        let mut pos = CURRENT_POS;
-        // Пропускаем пробелы перед timestamp
-        while pos < CSV_LEN && CSV_BUFFER[pos] == b' ' {
-            pos += 1;
-        }
-        let start = pos;
-        // Ищем разделитель ';' или конец строки
-        while pos < CSV_LEN && CSV_BUFFER[pos] != b';' && CSV_BUFFER[pos] != b'\n' {
-            pos += 1;
-        }
-        if pos == start {
-            return None; // пустой timestamp
-        }
-        Some(&CSV_BUFFER[start..pos])
+// Таблица соответствия байт Unicode (CP1251)
+const CP1251_TO_UNICODE: [u16; 128] = [
+    0x0402, 0x0403, 0x201A, 0x0453, 0x201E, 0x2026, 0x2020, 0x2021,
+    0x20AC, 0x2030, 0x0409, 0x2039, 0x040A, 0x040C, 0x040B, 0x040F,
+    0x0452, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x0098, 0x2122, 0x0459, 0x203A, 0x045A, 0x045C, 0x045B, 0x045F,
+    0x00A0, 0x040E, 0x045E, 0x0408, 0x00A4, 0x0490, 0x00A6, 0x00A7,
+    0x0401, 0x00A9, 0x0404, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x0407,
+    0x00B0, 0x00B1, 0x0406, 0x0456, 0x0491, 0x00B5, 0x00B6, 0x00B7,
+    0x0451, 0x2116, 0x0454, 0x00BB, 0x0458, 0x0405, 0x0455, 0x0457,
+    0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417,
+    0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F,
+    0x0420, 0x0421, 0x0422, 0x0423, 0x0424, 0x0425, 0x0426, 0x0427,
+    0x0428, 0x0429, 0x042A, 0x042B, 0x042C, 0x042D, 0x042E, 0x042F,
+    0x0430, 0x0431, 0x0432, 0x0433, 0x0434, 0x0435, 0x0436, 0x0437,
+    0x0438, 0x0439, 0x043A, 0x043B, 0x043C, 0x043D, 0x043E, 0x043F,
+    0x0440, 0x0441, 0x0442, 0x0443, 0x0444, 0x0445, 0x0446, 0x0447,
+    0x0448, 0x0449, 0x044A, 0x044B, 0x044C, 0x044D, 0x044E, 0x044F,
+];
+
+// Преобразует байт CP1251 в последовательность UTF-8 в `dst`.
+// Возвращает количество записанных байт.
+fn encode_utf8_from_cp1251(byte: u8, dst: &mut [u8]) -> usize {
+    if byte < 0x80 {
+        dst[0] = byte;
+        return 1;
+    }
+    let cp = CP1251_TO_UNICODE[(byte - 0x80) as usize] as u32;
+    if cp < 0x800 {
+        dst[0] = 0xC0 | ((cp >> 6) as u8);
+        dst[1] = 0x80 | ((cp & 0x3F) as u8);
+        2
+    } else {
+        dst[0] = 0xE0 | ((cp >> 12) as u8);
+        dst[1] = 0x80 | (((cp >> 6) & 0x3F) as u8);
+        dst[2] = 0x80 | ((cp & 0x3F) as u8);
+        3
     }
 }

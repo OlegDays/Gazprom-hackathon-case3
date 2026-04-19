@@ -1,4 +1,4 @@
-//! Дерево случайного разреза (Random Cut Tree)
+// Дерево случайного разреза (Random Cut Tree)
 
 use super::node::Node;
 

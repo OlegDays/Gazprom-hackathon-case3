@@ -3,23 +3,23 @@
 
 use core::ffi::c_char;
 use core::str;
+use libm::{fabsf, truncf, fmodf, roundf};
 
-const OUTPUT_DIR: &[u8] = b"output\0";
+const OUTPUT_DIR: &[u8] = b"output_folder\0";
 const PERMISSIONS: libc::mode_t = 0o666;
 
-/// Создаёт выходную директорию (если не существует)
+// Создаёт выходную директорию (если не существует)
 pub fn create_output_dir() -> bool {
     unsafe {
-        // mkdir возвращает 0 при успехе, -1 при ошибке; EEXIST допустимо
+        // mkdir возвращает 0 при успехе, -1 при ошибке
         libc::mkdir(OUTPUT_DIR.as_ptr() as *const c_char, 0o755);
         // Игнорируем ошибку (директория может уже быть)
         true
     }
 }
 
-/// Открывает файл для записи данных одного датчика.
-/// Имя файла формируется как "output/<имя_поля>.csv",
-/// недопустимые символы заменяются на '_'.
+// Открывает файл для записи данных одного датчика.
+// недопустимые символы заменяются на '_'.
 pub fn open_output_file(field_name: &[u8], _index: usize) -> i32 {
     let mut path_buf = [0u8; 256];
     let dir = OUTPUT_DIR;
@@ -28,14 +28,13 @@ pub fn open_output_file(field_name: &[u8], _index: usize) -> i32 {
 
     // Копируем "output/"
     for &b in dir.iter().take(dir.len() - 1) {
-        // -1 чтобы не копировать нуль-терминатор
         path_buf[pos] = b;
         pos += 1;
     }
     path_buf[pos] = b'/';
     pos += 1;
 
-    // Копируем имя поля, заменяя опасные символы
+    // Копируем имя поля, заменяя невалидные символы
     for &b in field_name {
         if b == b'/' || b == b'\\' || b == b'\0' || b == b';' {
             path_buf[pos] = b'_';
@@ -55,16 +54,33 @@ pub fn open_output_file(field_name: &[u8], _index: usize) -> i32 {
     }
     path_buf[pos] = 0;
 
-    unsafe {
+    let fd = unsafe {
         libc::open(
             path_buf.as_ptr() as *const c_char,
             libc::O_WRONLY | libc::O_CREAT | libc::O_TRUNC,
             PERMISSIONS,
         )
+    };
+
+    if fd < 0 {
+        return fd;
     }
+
+    // Записываем UTF-8 BOM (EF BB BF)
+    let bom: [u8; 3] = [0xEF, 0xBB, 0xBF];
+    let written = unsafe {
+        libc::write(fd, bom.as_ptr() as *const libc::c_void, bom.len())
+    };
+
+    if written != bom.len() as isize {
+        unsafe { libc::close(fd); }
+        return -1;
+    }
+
+    fd
 }
 
-/// Записывает строку в файл (используется для заголовков и разделителей)
+// Записывает строку в файл (используется для заголовков и разделителей)
 pub fn write_str(fd: i32, s: &str) -> bool {
     unsafe {
         let buf = s.as_bytes();
@@ -73,7 +89,7 @@ pub fn write_str(fd: i32, s: &str) -> bool {
     }
 }
 
-/// Записывает число f32 с 6 знаками после запятой
+// Записывает число f32 с 6 знаками после запятой
 pub fn write_f32(fd: i32, value: f32) -> bool {
     let mut buf = [0u8; 32];
     let mut pos = 0;
@@ -83,9 +99,9 @@ pub fn write_f32(fd: i32, value: f32) -> bool {
         buf[pos] = b'-';
         pos += 1;
     }
-    let abs_val = value.abs();
-    let int_part = abs_val.trunc() as u32;
-    let frac_part = ((abs_val.fract() * 1_000_000.0).round() as u32) % 1_000_000;
+    let abs_val = fabsf(value);
+    let int_part = truncf(abs_val) as u32;
+    let frac_part = (roundf(fmodf(abs_val, 1.0) * 1_000_000.0) as u32) % 1_000_000;
 
     // Целая часть
     let mut temp = int_part;
@@ -128,8 +144,8 @@ pub fn write_f32(fd: i32, value: f32) -> bool {
     }
 }
 
-/// Записывает заголовок CSV для одного датчика:
-/// "TimeStamp;Value;Status (1=Good,0=Bad)\n"
+// Записывает заголовок CSV для одного датчика:
+// "TimeStamp;Value;Status (1=Good,0=Bad)\n"
 pub fn write_header(fd: i32, field_name: &[u8]) -> bool {
     let part1 = "TimeStamp;";
     let part2 = ";0 - Bad, 1 - Good\n";
@@ -143,7 +159,7 @@ pub fn write_header(fd: i32, field_name: &[u8]) -> bool {
             return false;
         }
     } else {
-        // fallback
+        // если что-то пошло не так (к примеру, с локалью)
         if !write_str(fd, "unknown") {
             return false;
         }
@@ -151,7 +167,7 @@ pub fn write_header(fd: i32, field_name: &[u8]) -> bool {
     write_str(fd, part2)
 }
 
-/// Записывает одну строку данных, используя переданный слайс байт для timestamp.
+// Записывает одну строку данных, используя переданный слайс байт для timestamp.
 pub fn write_row_with_timestamp(fd: i32, timestamp: &[u8], raw_value: f32, is_good: bool) -> bool {
     // Пишем timestamp
     unsafe {

@@ -7,3 +7,5 @@ Thumbs.db
 *.tmp
 *.bak
 *.swp
+output_folder
+test
