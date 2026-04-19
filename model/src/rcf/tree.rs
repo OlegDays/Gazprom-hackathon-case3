@@ -1,5 +1,8 @@
+// реализвция дерева
+
 use crate::rcf::node::Node;
 
+// основные характеристики дерева
 pub const MAX_NODES_PER_TREE: usize = 200;
 pub const MIN_SPLIT_SAMPLES: u16 = 12;
 pub const MAX_DEPTH: usize = 15;
@@ -34,6 +37,7 @@ fn remove_stats(node: &mut Node, value: f32) {
 
 fn is_leaf(node: &Node) -> bool { !node.is_split }
 
+// проверка на надобность разделения
 fn should_split(node: &Node, depth: usize) -> bool {
     !node.is_split
         && node.count >= MIN_SPLIT_SAMPLES
@@ -47,7 +51,7 @@ fn fastrand_f32(seed: &mut u32) -> f32 {
     *seed ^= *seed << 5;
     (*seed as f32) / 4294967296.0
 }
-
+// разделение
 fn set_random_split(node: &mut Node, rng_seed: &mut u32) {
     let r = node.min_val + (node.max_val - node.min_val) * fastrand_f32(rng_seed);
     node.split_value = r;
@@ -63,7 +67,7 @@ pub struct RcfTree {
     pub window_filled: bool,
     pub rng_seed: u32,
 }
-
+// само дерево
 impl RcfTree {
     pub const fn new(node_offset: usize, window_offset: usize, rng_seed: u32) -> Self {
         Self {
@@ -79,11 +83,11 @@ impl RcfTree {
     fn nodes<'a>(&self, global_nodes: &'a mut [Node]) -> &'a mut [Node] {
         &mut global_nodes[self.node_offset..self.node_offset + MAX_NODES_PER_TREE]
     }
-
+    // создание окна адаптации
     fn window<'a>(&self, global_windows: &'a mut [f32]) -> &'a mut [f32] {
         &mut global_windows[self.window_offset..self.window_offset + WINDOW_SIZE]
     }
-
+    // вставка значений
     pub fn insert(&mut self, value: f32, global_nodes: &mut [Node], global_windows: &mut [f32]) -> f32 {
         let nodes = self.nodes(global_nodes);
         let window = self.window(global_windows);

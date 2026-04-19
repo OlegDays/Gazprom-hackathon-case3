@@ -1,3 +1,5 @@
+// файл реализации адаптивного порога.
+
 const HISTORY_BUFFER_SIZE: usize = 500;
 const ADJUSTMENT_SPEED: f32 = 0.02;
 
@@ -33,7 +35,7 @@ impl AdaptiveThreshold {
             self.adjust_threshold();
         }
     }
-
+    //основной рассчёт порога
     fn adjust_threshold(&mut self) {
         let len = if self.filled { HISTORY_BUFFER_SIZE } else { self.index };
         if len == 0 { return; }

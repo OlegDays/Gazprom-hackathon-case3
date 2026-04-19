@@ -1,4 +1,6 @@
 #[derive(Debug, Clone, Copy)]
+
+// реализация листа
 pub struct Node {
     pub left: i32,
     pub right: i32,

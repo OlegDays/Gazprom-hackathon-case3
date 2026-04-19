@@ -1,8 +1,11 @@
+//ансамбль моделей, по одной на поток
+
 use crate::rcf::node::Node;
 use crate::rcf::tree::{MAX_NODES_PER_TREE, WINDOW_SIZE};
 use crate::expert::signal_expert::SignalExpert;
 use core::array::from_fn;
 
+// зарактеристики каналов.
 pub const NUM_CHANNELS: usize = 20;
 pub const NUM_TREES_PER_CHANNEL: usize = 25;
 
@@ -33,7 +36,7 @@ impl Ensemble20 {
             &mut *ensemble_ptr
         }
     }
-
+    // передача в эксперты
     pub fn process_frame(&mut self, values: &[f32; NUM_CHANNELS]) -> FrameResult {
         let mut scores = [0.0; NUM_CHANNELS];
         let mut anomalies = [false; NUM_CHANNELS];
@@ -45,7 +48,7 @@ impl Ensemble20 {
         }
         FrameResult { scores, anomalies }
     }
-
+    // обноление экспертов
     pub fn reset(&mut self) {
         unsafe {
             for node in GLOBAL_NODES.iter_mut() {

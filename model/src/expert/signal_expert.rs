@@ -1,8 +1,12 @@
+// Файл исполнения эксперта. один эксперт - один поток.
+
+
 use crate::rcf::tree::RcfTree;
 use crate::learning::baseline::AdaptiveThreshold;
 use crate::rcf::node::Node;
 use crate::rcf::tree::{MAX_NODES_PER_TREE, WINDOW_SIZE};
 
+// количество деревьев в модели.
 pub const NUM_TREES: usize = 25;
 
 pub struct SignalExpert {
@@ -27,7 +31,7 @@ impl SignalExpert {
             self.trees[i] = RcfTree::new(node_offset, window_offset, seed);
         }
     }
-
+    // рассчёт скоров аномалий.
     pub fn process(&mut self, value: f32, global_nodes: &mut [Node], global_windows: &mut [f32]) -> f32 {
         let mut total_codisp = 0.0;
         for tree in &mut self.trees {
