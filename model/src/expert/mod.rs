@@ -1,5 +1,2 @@
-//! Модуль экспертов
-
-mod signal_expert;  // ← имя файла без расширения
-
+pub mod signal_expert;
 pub use signal_expert::SignalExpert;
