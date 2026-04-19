@@ -4,10 +4,10 @@ use crate::rcf::RcfTree;
 use crate::learning::AdaptiveThreshold;
 use libm::powf;
 
-const NUM_TREES: usize = 25;
+const NUM_TREES: usize = 10;
 const INITIAL_THRESHOLD: f32 = 0.65;
 const TARGET_FPR: f32 = 5.0;
-const MAX_TREE_DEPTH: usize = 20;
+const MAX_TREE_DEPTH: usize = 5;
 const RESET_INTERVAL: usize = 2000;
 
 pub struct SignalExpert {
