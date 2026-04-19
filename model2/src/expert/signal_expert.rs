@@ -1,223 +1,167 @@
-//! Эксперт одного сигнала с адаптивным порогом и защитой от загрязнения
+//! Эксперт одного сигнала. Финальная версия: "Два Окна".
+//! Максимально упрощенная и надежная логика для борьбы с FPR.
 
 use libm::sqrtf;
 
-const WINDOW_SIZE: usize = 200;
-const ZSCORE_THRESHOLD: f32 = 3.5;        // Выше порог z-score
-const UPDATE_INTERVAL: usize = 20;
+const LONG_WINDOW_SIZE: usize = 400; // Окно для глобальной "нормальной" модели
+const SHORT_WINDOW_SIZE: usize = 30; // Окно для локальной, быстрой "нормы"
 const MIN_STD: f32 = 0.01;
-const TARGET_FPR: f32 = 0.05;             // Целевой FPR 5%
+const TARGET_FPR_PERCENT: f32 = 4.0; // Сделаем цель чуть ниже
+const INITIAL_THRESHOLD: f32 = 0.5;  // И порог чуть выше
+
+// --- Адаптивный порог ---
+mod adaptive_threshold {
+    pub struct AdaptiveThreshold {
+        value: f32, target_fpr: f32, ema_fpr: f32,
+        anomalies: [bool; 100], idx: usize, filled: bool,
+    }
+    impl AdaptiveThreshold {
+        pub const fn new(initial: f32, target_fpr_percent: f32) -> Self {
+            Self {
+                value: initial, target_fpr: target_fpr_percent / 100.0,
+                ema_fpr: target_fpr_percent / 100.0, anomalies: [false; 100],
+                idx: 0, filled: false,
+            }
+        }
+        pub fn update(&mut self, is_anomaly: bool) {
+            self.anomalies[self.idx] = is_anomaly;
+            self.idx = (self.idx + 1) % 100;
+            if self.idx == 0 { self.filled = true; }
+            if self.filled && self.idx % 10 == 0 { self.adjust(); }
+        }
+        fn adjust(&mut self) {
+            let anomaly_count = self.anomalies.iter().filter(|&&x| x).count();
+            let current_fpr = anomaly_count as f32 / 100.0;
+            self.ema_fpr = self.ema_fpr * 0.9 + current_fpr * 0.1;
+            let error = self.ema_fpr - self.target_fpr;
+            self.value += error * 0.05;
+            self.value = self.value.clamp(0.30, 0.80);
+        }
+        pub fn get(&self) -> f32 { self.value }
+    }
+}
+
+use adaptive_threshold::AdaptiveThreshold;
 
 pub struct SignalExpert {
-    // История для статистики
-    history: [f32; WINDOW_SIZE],
+    // Глобальная "нормальная" модель (медленная)
+    long_term_mean: f32,
+    long_term_std: f32,
+
+    // Локальная модель "текущего" состояния (быстрая)
+    short_term_history: [f32; SHORT_WINDOW_SIZE],
+    
+    // История для первоначального обучения
+    training_history: [f32; LONG_WINDOW_SIZE],
     hist_idx: usize,
-    hist_filled: bool,
-    
-    // Защищённая модель нормального поведения
-    normal_mean: f32,
-    normal_std: f32,
-    normal_min: f32,
-    normal_max: f32,
-    
-    // Текущая статистика
-    current_mean: f32,
-    current_std: f32,
-    
-    // Адаптивный порог
-    threshold: f32,
-    
-    // Для адаптации порога
-    recent_scores: [f32; 100],
-    recent_anomalies: [bool; 100],
-    recent_idx: usize,
-    recent_filled: bool,
-    
-    processed: usize,
+
+    threshold: AdaptiveThreshold,
     training: bool,
-    train_count: usize,
 }
 
 impl SignalExpert {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
-            history: [0.0; WINDOW_SIZE],
+            long_term_mean: 0.0,
+            long_term_std: 1.0,
+            short_term_history: [0.0; SHORT_WINDOW_SIZE],
+            training_history: [0.0; LONG_WINDOW_SIZE],
             hist_idx: 0,
-            hist_filled: false,
-            normal_mean: 0.0,
-            normal_std: 1.0,
-            normal_min: f32::MAX,
-            normal_max: f32::MIN,
-            current_mean: 0.0,
-            current_std: 1.0,
-            threshold: 0.75,                // Стартовый порог выше
-            recent_scores: [0.0; 100],
-            recent_anomalies: [false; 100],
-            recent_idx: 0,
-            recent_filled: false,
-            processed: 0,
+            threshold: AdaptiveThreshold::new(INITIAL_THRESHOLD, TARGET_FPR_PERCENT),
             training: true,
-            train_count: 0,
         }
     }
-    
+
     pub fn process(&mut self, value: f32) -> f32 {
-        self.processed += 1;
-        
-        // Обучение на первых WINDOW_SIZE точках
         if self.training {
-            self.history[self.train_count] = value;
-            self.train_count += 1;
-            if self.train_count >= WINDOW_SIZE {
-                self.finish_training();
+            self.training_history[self.hist_idx] = value;
+            self.hist_idx += 1;
+            if self.hist_idx >= LONG_WINDOW_SIZE {
+                self.finish_training(value);
             }
             return 0.0;
         }
-        
-        // Скользящее окно для текущей статистики
-        self.history[self.hist_idx] = value;
-        self.hist_idx = (self.hist_idx + 1) % WINDOW_SIZE;
-        
-        if self.processed % UPDATE_INTERVAL == 0 {
-            self.update_current_stats();
-        }
-        
+
+        // 1. Обновляем историю для локального окна
+        self.short_term_history.copy_within(0..SHORT_WINDOW_SIZE - 1, 1);
+        self.short_term_history[0] = value;
+
+        // 2. Вычисляем score
         let score = self.compute_anomaly_score(value);
-        
-        // Очень медленная адаптация нормальной модели при score < 0.2
+
+        // 3. Медленно адаптируем глобальную модель, если сигнал "спокоен"
         if score < 0.2 {
-            self.adapt_normal_model(value);
+            self.adapt_long_term_model(value);
         }
-        
-        // Адаптация порога
-        let is_anomaly = score > self.threshold;
-        self.update_threshold(score, is_anomaly);
+
+        // 4. Обновляем порог
+        let is_anomaly = score > self.threshold.get();
+        self.threshold.update(is_anomaly);
         
         score
     }
     
     pub fn process_learning(&mut self, value: f32) {
         if self.training {
-            self.history[self.train_count] = value;
-            self.train_count += 1;
-            if self.train_count >= WINDOW_SIZE {
-                self.finish_training();
+            self.training_history[self.hist_idx] = value;
+            self.hist_idx += 1;
+            if self.hist_idx >= LONG_WINDOW_SIZE {
+                self.finish_training(value);
             }
         }
     }
-    
-    fn finish_training(&mut self) {
-        let sum: f32 = self.history.iter().sum();
-        self.normal_mean = sum / WINDOW_SIZE as f32;
+
+    fn finish_training(&mut self, last_value: f32) {
+        let sum: f32 = self.training_history.iter().sum();
+        self.long_term_mean = sum / LONG_WINDOW_SIZE as f32;
         
         let mut sq_sum = 0.0;
-        for &v in &self.history {
-            let diff = v - self.normal_mean;
+        for &v in &self.training_history {
+            let diff = v - self.long_term_mean;
             sq_sum += diff * diff;
-            if v < self.normal_min { self.normal_min = v; }
-            if v > self.normal_max { self.normal_max = v; }
         }
-        self.normal_std = sqrtf(sq_sum / WINDOW_SIZE as f32).max(MIN_STD);
+        self.long_term_std = sqrtf(sq_sum / LONG_WINDOW_SIZE as f32).max(MIN_STD);
         
-        self.current_mean = self.normal_mean;
-        self.current_std = self.normal_std;
+        self.short_term_history = [last_value; SHORT_WINDOW_SIZE];
         
         self.training = false;
-        self.hist_filled = true;
     }
-    
-    fn update_current_stats(&mut self) {
-        let sum: f32 = self.history.iter().sum();
-        self.current_mean = sum / WINDOW_SIZE as f32;
-        
-        let mut sq_sum = 0.0;
-        for &v in &self.history {
-            let diff = v - self.current_mean;
-            sq_sum += diff * diff;
-        }
-        self.current_std = sqrtf(sq_sum / WINDOW_SIZE as f32).max(MIN_STD);
-    }
-    
+
     fn compute_anomaly_score(&self, value: f32) -> f32 {
-        let z_normal = (value - self.normal_mean).abs() / self.normal_std;
-        let z_current = (value - self.current_mean).abs() / self.current_std;
-        let normal_range = self.normal_max - self.normal_min;
-        
-        let mut score = 0.0f32;
-        
-        // 1. Выход за нормальный диапазон
-        if value < self.normal_min - normal_range * 0.3 
-            || value > self.normal_max + normal_range * 0.3 {
-            score = score.max(0.7);
+        // --- Вычисляем статистику для КОРОТКОГО окна ---
+        let short_sum: f32 = self.short_term_history.iter().sum();
+        let short_mean = short_sum / SHORT_WINDOW_SIZE as f32;
+        let mut short_sq_sum = 0.0;
+        for &v in &self.short_term_history {
+            short_sq_sum += (v - short_mean) * (v - short_mean);
         }
-        
-        // 2. Большой z-score по нормальной модели
-        if z_normal > ZSCORE_THRESHOLD {
-            score = score.max(0.6 + (z_normal - ZSCORE_THRESHOLD) * 0.1);
-        }
-        
-        // 3. Подтверждение от текущего окна
-        if z_current > 3.0 {
-            score = score.max(0.8);
-        }
-        
-        // 4. Заморозка
-        if self.current_std < self.normal_std * 0.1 {
-            score = score.max(0.85);
-        }
-        
-        // 5. Штраф за частые колебания (шум) — снижаем скор, если std большой, но значение близко к среднему
-        if z_normal < 1.0 && self.current_std > self.normal_std * 1.5 {
-            score *= 0.7;
-        }
-        
-        score.min(1.0)
+        let short_std = sqrtf(short_sq_sum / SHORT_WINDOW_SIZE as f32).max(MIN_STD);
+
+        // --- Вычисляем ДВЕ Z-оценки ---
+        let z_long = ((value - self.long_term_mean) / self.long_term_std).abs();
+        let z_short = ((value - short_mean) / short_std).abs();
+
+        // --- ЛОГИКА СКОРИНГА ---
+        let base_score = (z_short / 4.0).clamp(0.0, 1.0); // z=4 -> 1.0
+        let drift_bonus = (z_long / 10.0).clamp(0.0, 0.2); // Максимум +0.2 к score
+
+        (base_score + drift_bonus).clamp(0.0, 1.0)
     }
-    
-    fn adapt_normal_model(&mut self, value: f32) {
-        // EMA с маленьким коэффициентом
-        self.normal_mean = self.normal_mean * 0.995 + value * 0.005;
-        
-        if value < self.normal_min {
-            self.normal_min = value;
-        }
-        if value > self.normal_max {
-            self.normal_max = value;
-        }
-        
-        // Медленное расширение диапазона
-        if self.processed % 1000 == 0 {
-            self.normal_min *= 0.995;
-            self.normal_max *= 1.005;
-        }
+
+    fn adapt_long_term_model(&mut self, value: f32) {
+        self.long_term_mean = self.long_term_mean * 0.9998 + value * 0.0002;
+        let current_sq_dev = (value - self.long_term_mean) * (value - self.long_term_mean);
+        let new_var = (self.long_term_std * self.long_term_std) * 0.9999 + current_sq_dev * 0.0001;
+        self.long_term_std = sqrtf(new_var).max(MIN_STD);
     }
-    
-    fn update_threshold(&mut self, score: f32, is_anomaly: bool) {
-        self.recent_scores[self.recent_idx] = score;
-        self.recent_anomalies[self.recent_idx] = is_anomaly;
-        self.recent_idx = (self.recent_idx + 1) % 100;
-        if self.recent_idx == 0 {
-            self.recent_filled = true;
-        }
-        
-        if self.recent_filled && self.processed % 50 == 0 {
-            let len = 100;
-            let anomaly_count = self.recent_anomalies.iter().filter(|&&x| x).count();
-            let current_fpr = anomaly_count as f32 / len as f32;
-            
-            if current_fpr > TARGET_FPR {
-                self.threshold = (self.threshold * 1.02).min(0.95);
-            } else if current_fpr < TARGET_FPR * 0.3 {
-                self.threshold = (self.threshold * 0.99).max(0.6);
-            }
-        }
-    }
-    
+
     pub fn get_threshold(&self) -> f32 {
-        if self.training { 1.0 } else { self.threshold }
+        if self.training { 1.0 } else { self.threshold.get() }
     }
-    
-    pub fn reset(&mut self) {
-        *self = Self::new();
-    }
+
+    pub fn reset(&mut self) { *self = Self::new(); }
+}
+
+impl Default for SignalExpert {
+    fn default() -> Self { Self::new() }
 }
