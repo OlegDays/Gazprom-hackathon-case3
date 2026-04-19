@@ -30,7 +30,7 @@ pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32
 //    }
     
 //	let filename = unsafe { *argv.add(1) };
-    let path = CStr::from_bytes_with_nul(b"1.csv\0").unwrap();
+    let path = CStr::from_bytes_with_nul(b"2.csv\0").unwrap();
 
     if !parse::parse_init(path.as_ptr()) {
         return 1;
@@ -64,7 +64,8 @@ pub extern "C" fn main() -> i32 {//argc: i32, argv: *const *const c_char) -> i32
         }
     }
     
-    let mut ensemble = Ensemble20::new();
+    let mut ensemble = Ensemble20::init();
+    ensemble.reset();
     
     while let Some((ts_bytes, values)) = parse::export_row() {
 		let result = ensemble.process_frame(&values);
