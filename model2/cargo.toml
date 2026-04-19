@@ -1,0 +1,30 @@
+[package]
+name = "anomaly_detector"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "anomaly_detector"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+libc = "0.2"
+libm = "0.2"
+lazy_static = "1.4"
+parking_lot = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[[bin]]
+name = "test"
+path = "src/test.rs"
+
+
+[[bin]]
+name = "GO"
+path = "src/parse_use.rs"
