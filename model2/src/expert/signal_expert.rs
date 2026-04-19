@@ -7,7 +7,7 @@ const LONG_WINDOW_SIZE: usize = 400;
 const SHORT_WINDOW_SIZE: usize = 30; // Это значение используется только для коэффициента alpha
 const MIN_STD: f32 = 0.01;
 const TARGET_FPR_PERCENT: f32 = 3.0;
-const INITIAL_THRESHOLD: f32 = 0.5;
+const INITIAL_THRESHOLD: f32 = 0.7;
 
 // --- Адаптивный порог ---
 mod adaptive_threshold {
@@ -111,6 +111,10 @@ impl SignalExpert {
                 self.finish_training(value);
             }
         }
+    }
+
+    pub fn get_score(&mut self, value: f32){
+        self.score
     }
 
     fn finish_training(&mut self, _last_value: f32) {
